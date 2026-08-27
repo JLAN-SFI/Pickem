@@ -54,17 +54,27 @@ If `ADMIN_PASSWORD` is never set at all, Admin mode is left open with no
 password — fine for just testing locally, not recommended once you've shared
 the real URL with your team.
 
-## Data storage
+## Data storage — set this up before sharing the URL with your team
 
-Data lives in `data/db.json` on the server, created automatically on first
-write. This is intentionally simple and fine for a small office pool.
+**This step is required, not optional.** On Render (and most similar hosts),
+the filesystem resets on every redeploy — anything written at runtime,
+including all your picks, is wiped clean. The app now uses **Upstash Redis**
+instead, which is free forever and actually persists.
 
-One thing worth knowing: on some hosts (e.g. Render's free tier), the
-filesystem resets on redeploys — data persists across restarts of the same
-running instance, but a fresh deploy wipes it. If that matters to you, either
-attach a persistent disk (a paid feature on most hosts) or swap `server.js`'s
-`loadDb()`/`saveDb()` for a real database — everything else in the app is
-agnostic to how storage works underneath.
+1. Go to [upstash.com](https://upstash.com), sign up (no credit card).
+2. Create a new Redis database (any region close to you is fine).
+3. On the database's page, find the **REST API** section — copy the
+   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` values.
+4. On Render: your service → **Environment** → add both as environment
+   variables, using those exact names. Save — Render redeploys automatically.
+5. Check Render's **Logs** tab after it restarts — you should see:
+   `💾 Using Upstash Redis — data will persist across redeploys.`
+   If you instead see the warning about local file storage, the env vars
+   weren't picked up — double-check the exact names and that you saved.
+
+Without these two variables set, the app still works, but falls back to a
+local JSON file that Render wipes on every deploy — fine for a quick local
+test, not for the real thing.
 
 ## What's different from the Claude.ai artifact version
 
