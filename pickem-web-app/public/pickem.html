@@ -153,9 +153,11 @@
   .injury-list li:first-child{border-top:none;}
   .injury-name{color:var(--chalk);font-weight:600;margin-right:6px;}
   .injury-status{
-    font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:#ff9c86;
-    border:1px solid rgba(193,67,46,0.45);border-radius:4px;padding:1px 5px;margin-right:6px;
+    font-family:'Space Mono',monospace;font-size:10px;font-weight:700;
+    border-radius:4px;padding:1px 5px;margin-right:6px;
   }
+  .injury-status.out{color:#ff9c86;border:1px solid rgba(193,67,46,0.45);}
+  .injury-status.questionable{color:var(--amber);border:1px solid rgba(255,182,39,0.45);}
   .losers-card{
     background:rgba(244,241,232,0.03);
     border:1px solid rgba(244,241,232,0.14);
@@ -361,6 +363,7 @@
   .error{color:#ffb0a0;}
   .error button{margin-top:10px;}
   .hint{font-size:12px;color:var(--chalk-dim);margin-top:14px;text-align:center;}
+  .build-tag{font-size:10px;color:rgba(244,241,232,0.3);text-align:center;margin-top:30px;font-family:'Space Mono',monospace;}
 </style>
 </head>
 <body>
@@ -383,20 +386,21 @@
   ];
 
   // Comical injury report for anyone who sat out a week (made zero picks).
-  // Type + body part are combined (15 x 20 = 300 combinations) so it feels
+  // Type + body part are combined (20 x 20 = 400 combinations) so it feels
   // genuinely varied rather than picking from one short canned list. The
   // pairing is still stable per person+week (not re-randomized every render)
   // so the report doesn't change every time someone refreshes the page.
   const INJURY_TYPES = [
-    "Sprained", "Strained", "Bruised", "Tweaked", "Jammed",
-    "Pulled", "Twisted", "Stubbed", "Overextended", "Cramped",
-    "Chafed", "Popped", "Pinched", "Rattled", "Fatigued"
+    "Stubbed", "Chafed", "Popped", "Tickled", "Startled",
+    "Wiggled", "Overworked", "Fatigued", "Numbed", "Jiggled",
+    "Flustered", "Rattled", "Bonked", "Nicked", "Pinched",
+    "Zapped", "Twitchy", "Wobbly", "Overexcited", "Bruised"
   ];
   const BODY_PARTS = [
-    "toe", "pinky toe", "thumb", "wrist", "elbow",
-    "shoulder", "neck", "lower back", "hamstring", "calf",
-    "shin", "ankle", "knee", "hip", "eyebrow",
-    "earlobe", "funny bone", "index finger", "jaw", "eyelid"
+    "eyelash", "nostril", "earlobe", "pinky toe", "eyebrow",
+    "belly button", "cowlick", "chin", "tongue", "cuticle",
+    "freckle", "nose hair", "big toe", "knuckle", "funny bone",
+    "wrist bone", "eyelid", "toenail", "dimple", "forehead"
   ];
 
   function hashString(str){
@@ -412,6 +416,8 @@
     const partIdx = hashString(`${name}-${year}-${week}-part`) % BODY_PARTS.length;
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
+
+  const BUILD_TAG = 'v15-inconsequential-injuries';
 
   let state = {
     year: null,
@@ -545,6 +551,72 @@
     const b = parseInt(h.substring(4,6),16);
     if([r,g,b].some(n => Number.isNaN(n))) return null;
     return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function hexToRgb(hex){
+    const h = hex.replace('#','');
+    if(h.length !== 6) return null;
+    const r = parseInt(h.substring(0,2),16);
+    const g = parseInt(h.substring(2,4),16);
+    const b = parseInt(h.substring(4,6),16);
+    if([r,g,b].some(n => Number.isNaN(n))) return null;
+    return [r,g,b];
+  }
+
+  function rgbToHsl(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    let h, s, l = (max+min)/2;
+    if(max === min){ h = 0; s = 0; }
+    else{
+      const d = max-min;
+      s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max){
+        case r: h = (g-b)/d + (g<b?6:0); break;
+        case g: h = (b-r)/d + 2; break;
+        default: h = (r-g)/d + 4;
+      }
+      h /= 6;
+    }
+    return [h,s,l];
+  }
+
+  function hslToRgb(h,s,l){
+    let r,g,b;
+    if(s === 0){ r=g=b=l; }
+    else{
+      const hue2rgb = (p,q,t) => {
+        if(t<0) t+=1;
+        if(t>1) t-=1;
+        if(t<1/6) return p+(q-p)*6*t;
+        if(t<1/2) return q;
+        if(t<2/3) return p+(q-p)*(2/3-t)*6;
+        return p;
+      };
+      const q = l < 0.5 ? l*(1+s) : l+s-l*s;
+      const p = 2*l-q;
+      r = hue2rgb(p,q,h+1/3);
+      g = hue2rgb(p,q,h);
+      b = hue2rgb(p,q,h-1/3);
+    }
+    return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+  }
+
+  // Blends a team color into an opaque tile color against the app's dark
+  // background, rather than a semi-transparent tint. A plain darken/blend
+  // wasn't enough — most college team colors (greens, navys) are already
+  // dark, so blending toward an even-darker background barely moved the
+  // needle and looked unselected. Normalizing to a guaranteed minimum
+  // brightness/saturation in HSL space fixes that for every team color,
+  // while staying visually distinct from the app's win/loss green.
+  function solidTeamTileColor(hex){
+    const rgb = hexToRgb(hex);
+    if(!rgb) return null;
+    const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+    const targetL = Math.min(Math.max(l, 0.30), 0.40);
+    const targetS = Math.min(Math.max(s, 0.40), 0.75);
+    const [r2,g2,b2] = hslToRgb(h, targetS, targetL);
+    return `rgb(${r2},${g2},${b2})`;
   }
 
   // Some ESPN entries use near-black/near-white placeholder colors when a team
@@ -1112,8 +1184,8 @@
       const showScore = g.state !== 'pre';
       let styleAttr = '';
       if(picked && !g.completed && isUsableTeamColor(team.color)){
-        const bg = hexToRgba(team.color, 0.24);
-        styleAttr = ` style="border-left-color:${team.color};${bg ? ` background:${bg};` : ''}"`;
+        const bg = solidTeamTileColor(team.color);
+        styleAttr = ` style="border-left-color:${team.color};border-left-width:6px;${bg ? ` background:${bg};` : ''}"`;
       }
       return `
         <div class="${rowClass(team, picked)}"${styleAttr} ${homeLocked ? '' : `data-action="pick" data-game="${g.id}" data-team="${team.id}"`}>
@@ -1370,6 +1442,7 @@
       </div>
 
       ${renderActiveTab()}
+      <div class="build-tag">${BUILD_TAG}</div>
     `;
     attachHandlers();
   }
@@ -1416,16 +1489,22 @@
   }
 
   function renderInjuryReport(){
-    const absentees = state.members.filter(m => {
-      const p = state.weekPicks[m];
-      return !p || Object.keys(p).length === 0;
+    const total = state.games.length;
+    const out = [];
+    const questionable = [];
+    state.members.forEach(m => {
+      const p = state.weekPicks[m] || {};
+      const count = Object.keys(p).length;
+      if(count === 0) out.push(m);
+      else if(count < total) questionable.push(m);
     });
-    if(!absentees.length) return '';
+    if(!out.length && !questionable.length) return '';
     return `
       <div class="injury-card">
         <h3 class="injury-heading">🏥 Injuries</h3>
         <ul class="injury-list">
-          ${absentees.map(name => `<li><span class="injury-name">${escapeHtml(name)}</span><span class="injury-status">OUT</span> — ${escapeHtml(getInjuryFor(name, state.year, state.week))}</li>`).join('')}
+          ${out.map(name => `<li><span class="injury-name">${escapeHtml(name)}</span><span class="injury-status out">OUT</span> — ${escapeHtml(getInjuryFor(name, state.year, state.week))}</li>`).join('')}
+          ${questionable.map(name => `<li><span class="injury-name">${escapeHtml(name)}</span><span class="injury-status questionable">QUESTIONABLE</span> — ${escapeHtml(getInjuryFor(name, state.year, state.week))} <span class="award-note">(${Object.keys(state.weekPicks[name]).length}/${total} picked)</span></li>`).join('')}
         </ul>
       </div>
     `;
