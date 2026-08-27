@@ -96,4 +96,7 @@ app.get('*', (req, res) => {
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🏈 Pick 'Em running at http://localhost:${port}`);
+  console.log(ADMIN_PASSWORD
+    ? '🔒 ADMIN_PASSWORD is set — Admin mode is password-protected.'
+    : '⚠️  No ADMIN_PASSWORD env var detected — Admin mode is currently OPEN to anyone.');
 });
