@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick 'Em</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --turf:#1B3A2A;
+    --turf-dark:#12261B;
+    --charcoal:#14201A;
+    --chalk:#F4F1E8;
+    --chalk-dim:rgba(244,241,232,0.62);
+    --amber:#FFB627;
+    --amber-dim:rgba(255,182,39,0.18);
+    --green-win:#3FA66A;
+    --green-win-bg:rgba(63,166,106,0.16);
+    --red-loss:#C1432E;
+    --red-loss-bg:rgba(193,67,46,0.16);
+    --hash:rgba(244,241,232,0.10);
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--turf);
+    background-image:
+      repeating-linear-gradient(0deg, transparent 0 79px, var(--hash) 79px 80px);
+    color:var(--chalk);
+    font-family:'Inter',system-ui,sans-serif;
+    min-height:100vh;
+    padding:0 0 60px;
+  }
+  .wrap{max-width:860px;margin:0 auto;padding:20px 16px;}
+
+  /* ---- Scoreboard hero ---- */
+  .board{
+    background:var(--charcoal);
+    border-radius:var(--radius);
+    padding:22px 20px 18px;
+    box-shadow:0 6px 0 rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,182,39,0.15);
+    position:relative;
+    overflow:hidden;
+  }
+  .board::before{
+    content:"";
+    position:absolute; inset:0;
+    background:repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 6px);
+    pointer-events:none;
+  }
+  .board-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .board-title{
+    font-family:'Anton',sans-serif;
+    font-size:clamp(22px,5vw,32px);
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    color:var(--chalk);
+    margin:0;
+  }
+  .board-title span{color:var(--amber);}
+  .board-sub{font-family:'Space Mono',monospace;font-size:12px;color:var(--chalk-dim);}
+  .week-display{
+    display:flex;align-items:center;gap:14px;margin-top:14px;
+  }
+  .week-nav-btn{
+    background:transparent;border:1px solid rgba(255,182,39,0.4);color:var(--amber);
+    width:34px;height:34px;border-radius:6px;font-size:16px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:background 0.15s;
+  }
+  .week-nav-btn:hover{background:var(--amber-dim);}
+  .week-digits{
+    font-family:'Anton',sans-serif;
+    font-size:clamp(38px,10vw,58px);
+    color:var(--amber);
+    text-shadow:0 0 14px rgba(255,182,39,0.55);
+    letter-spacing:0.03em;
+    line-height:1;
+    min-width:2ch;
+    text-align:center;
+  }
+  .week-meta{font-family:'Space Mono',monospace;font-size:12px;color:var(--chalk-dim);}
+  .week-meta b{color:var(--chalk);}
+  .board-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;}
+  .btn-ghost{
+    background:transparent;border:1px solid rgba(244,241,232,0.25);color:var(--chalk);
+    padding:8px 12px;border-radius:6px;font-family:'Inter';font-size:12px;font-weight:600;
+    cursor:pointer;letter-spacing:0.02em;
+  }
+  .btn-ghost:hover{border-color:var(--amber);color:var(--amber);}
+  .btn-ghost.on{background:var(--amber);border-color:var(--amber);color:var(--charcoal);}
+  .btn-ghost:disabled{opacity:0.4;cursor:not-allowed;}
+
+  /* ---- Roster / member picker ---- */
+  .roster{
+    margin-top:18px;
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  }
+  .roster-label{font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);text-transform:uppercase;letter-spacing:0.08em;margin-right:4px;}
+  .pill{
+    background:rgba(244,241,232,0.06);
+    border:1px solid rgba(244,241,232,0.18);
+    color:var(--chalk);
+    padding:6px 13px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;
+    transition:all 0.15s;
+  }
+  .pill:hover{border-color:var(--amber);}
+  .pill.active{background:var(--amber);border-color:var(--amber);color:var(--charcoal);}
+  .pill{display:inline-flex;align-items:center;gap:6px;}
+  .pill.pill-complete{background:var(--green-win);border-color:var(--green-win);color:var(--charcoal);}
+  .pill-progress{
+    font-family:'Space Mono',monospace;font-size:10.5px;font-weight:700;
+    background:rgba(0,0,0,0.18);border-radius:999px;padding:1px 6px;
+  }
+  .pill.active .pill-progress, .pill.pill-complete .pill-progress{background:rgba(0,0,0,0.22);}
+  .add-member{display:flex;gap:6px;align-items:center;}
+  .add-member input{
+    background:rgba(244,241,232,0.06);border:1px solid rgba(244,241,232,0.2);
+    border-radius:6px;padding:6px 10px;color:var(--chalk);font-size:13px;font-family:'Inter';
+    width:120px;
+  }
+  .add-member input::placeholder{color:rgba(244,241,232,0.4);}
+  .add-member button{
+    background:transparent;border:1px solid var(--amber);color:var(--amber);
+    border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;font-weight:600;
+  }
+
+  /* ---- Tabs ---- */
+  .tabs{display:flex;gap:4px;margin:22px 0 12px;flex-wrap:wrap;}
+  .tab{
+    background:transparent;border:none;color:var(--chalk-dim);
+    padding:9px 4px;font-family:'Inter';font-size:14px;font-weight:600;cursor:pointer;
+    border-bottom:2px solid transparent;
+  }
+  .tab.active{color:var(--amber);border-bottom-color:var(--amber);}
+
+  /* ---- Deadline & pot banners ---- */
+  .deadline-banner{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;
+    border:1px solid rgba(255,182,39,0.35);background:rgba(255,182,39,0.08);color:var(--amber);
+  }
+  .deadline-banner.locked{
+    border-color:rgba(193,67,46,0.45);background:rgba(193,67,46,0.1);color:#ff9c86;
+  }
+  .deadline-banner .countdown{font-family:'Space Mono',monospace;font-weight:700;}
+  .pot-banner{
+    display:flex;align-items:center;gap:10px;
+    border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:13px;
+    border:1px solid rgba(255,182,39,0.3);background:rgba(20,32,26,0.4);color:var(--chalk);
+  }
+  .pot-banner .pot-amount{font-family:'Space Mono',monospace;font-weight:700;color:var(--amber);}
+  .pot-banner .mini-coins{font-size:15px;letter-spacing:-2px;}
+
+  /* ---- Games list ---- */
+  .games{display:flex;flex-direction:column;}
+  .game-card{
+    padding:16px 4px;
+    border-top:1px dashed var(--hash);
+  }
+  .game-card:first-child{border-top:none;}
+  .game-time{font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;}
+  .matchup{display:flex;flex-direction:column;gap:6px;}
+  .team-row{
+    display:flex;align-items:center;gap:10px;
+    background:rgba(244,241,232,0.04);
+    border:1px solid rgba(244,241,232,0.12);
+    border-left:4px solid transparent;
+    border-radius:8px;
+    padding:9px 12px;
+    cursor:pointer;
+    transition:all 0.12s;
+  }
+  .team-row:hover{border-color:rgba(255,182,39,0.5);}
+  .team-row.locked{cursor:default;}
+  .team-row img{width:26px;height:26px;object-fit:contain;flex-shrink:0;}
+  .team-name{font-weight:600;font-size:14.5px;flex:1;}
+  .team-record{font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);}
+  .team-score{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;min-width:2ch;text-align:right;}
+  .team-row.picked{border-left-color:var(--amber);background:var(--amber-dim);}
+  .team-row.result-win{border-left-color:var(--green-win);background:var(--green-win-bg);}
+  .team-row.result-loss{border-left-color:var(--red-loss);background:var(--red-loss-bg);opacity:0.75;}
+  .pick-check{font-size:13px;margin-left:4px;}
+  .game-status{font-family:'Space Mono',monospace;font-size:10.5px;color:var(--amber);margin-top:6px;text-transform:uppercase;}
+
+  /* ---- Standings ---- */
+  .standings-table{width:100%;border-collapse:collapse;margin-top:6px;}
+  .standings-table th{
+    text-align:left;font-family:'Space Mono',monospace;font-size:10.5px;color:var(--chalk-dim);
+    text-transform:uppercase;letter-spacing:0.06em;font-weight:400;
+    padding:6px 8px;border-bottom:1px solid rgba(244,241,232,0.15);
+  }
+  .standings-table td{
+    padding:9px 8px;font-size:14px;border-bottom:1px dashed var(--hash);
+  }
+  .standings-table tr:first-child td{font-weight:700;color:var(--amber);}
+  .rec{font-family:'Space Mono',monospace;}
+
+  /* ---- Admin selection ---- */
+  .admin-banner{
+    background:rgba(255,182,39,0.1);border:1px solid rgba(255,182,39,0.35);
+    border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--amber);
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+  }
+  .admin-list{display:flex;flex-direction:column;gap:8px;}
+  .admin-row{
+    display:flex;align-items:center;gap:10px;
+    background:rgba(244,241,232,0.04);border:1px solid rgba(244,241,232,0.12);
+    border-radius:8px;padding:10px 12px;cursor:pointer;
+  }
+  .admin-row.chosen{border-color:var(--amber);background:var(--amber-dim);}
+  .admin-row input{accent-color:#FFB627;width:16px;height:16px;flex-shrink:0;}
+  .admin-row .matchup-text{flex:1;font-size:14px;font-weight:600;}
+  .admin-row .game-time-inline{font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);}
+  .admin-deadline-block{
+    margin-top:18px;padding-top:16px;border-top:1px dashed var(--hash);
+  }
+  .admin-deadline-block label{
+    display:block;font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);
+    text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;
+  }
+  .admin-deadline-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .admin-deadline-row input[type="datetime-local"]{
+    background:rgba(244,241,232,0.06);border:1px solid rgba(244,241,232,0.2);
+    border-radius:6px;padding:8px 10px;color:var(--chalk);font-size:13px;font-family:'Inter';
+    color-scheme:dark;
+  }
+  .admin-save-bar{display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px;}
+  .admin-prize-block{
+    margin-top:18px;padding-top:16px;border-top:1px dashed var(--hash);
+  }
+  .admin-prize-block label{
+    display:block;font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);
+    text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;
+  }
+  .admin-prize-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .admin-prize-row input[type="number"]{
+    background:rgba(244,241,232,0.06);border:1px solid rgba(244,241,232,0.2);
+    border-radius:6px;padding:8px 10px;color:var(--chalk);font-size:13px;font-family:'Inter';
+    width:100px;
+  }
+  .admin-prize-hint{font-size:11.5px;color:var(--chalk-dim);margin-top:6px;}
+
+  /* ---- Gold pile ---- */
+  .gold-pile{
+    position:relative;
+    width:150px;height:110px;
+    margin:6px auto 0;
+  }
+  .coin{
+    position:absolute;
+    font-size:34px;
+    line-height:1;
+    filter:drop-shadow(0 3px 2px rgba(0,0,0,0.35));
+    transform-origin:center;
+    animation:coinFloat 3.2s ease-in-out infinite;
+  }
+  .coin.extra-badge{
+    position:absolute; top:-6px; right:2px;
+    background:var(--amber); color:var(--charcoal);
+    font-family:'Space Mono',monospace; font-weight:700; font-size:12px;
+    border-radius:999px; padding:2px 7px;
+    animation:none;
+  }
+  @keyframes coinFloat{
+    0%,100%{ transform:translateY(0) rotate(var(--r,0deg)); }
+    50%{ transform:translateY(-3px) rotate(var(--r,0deg)); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .coin{ animation:none; }
+  }
+
+  /* ---- Winners page ---- */
+  .winners-wrap{text-align:center;padding:26px 12px;}
+  .trophy{font-size:52px;line-height:1;}
+  .winner-heading{
+    font-family:'Anton',sans-serif;font-size:clamp(24px,6vw,34px);letter-spacing:0.03em;
+    text-transform:uppercase;color:var(--amber);margin:10px 0 4px;text-shadow:0 0 14px rgba(255,182,39,0.4);
+  }
+  .winner-names{font-size:18px;font-weight:700;margin-top:6px;}
+  .winner-sub{font-size:13px;color:var(--chalk-dim);margin-top:10px;font-family:'Space Mono',monospace;}
+  .bad-luck-heading{
+    font-family:'Anton',sans-serif;font-size:clamp(26px,7vw,38px);letter-spacing:0.03em;
+    color:var(--red-loss);margin:10px 0 4px;text-transform:uppercase;
+  }
+  .pot-callout{
+    font-family:'Space Mono',monospace;font-size:14px;color:var(--amber);margin-top:14px;font-weight:700;
+  }
+  .pot-callout.small{font-size:12px;color:var(--chalk-dim);font-weight:400;}
+
+  /* ---- Misc states ---- */
+  .empty, .error, .loading{
+    text-align:center;padding:40px 16px;color:var(--chalk-dim);font-size:14px;
+  }
+  .error{color:#ffb0a0;}
+  .error button{margin-top:10px;}
+  .hint{font-size:12px;color:var(--chalk-dim);margin-top:14px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+(function(){
+  const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard";
+
+  // fixed layout for up to 8 coins, arranged in a pile silhouette
+  const COIN_LAYOUT = [
+    {x:50,y:82,s:36,r:-6},
+    {x:34,y:74,s:32,r:10},
+    {x:66,y:74,s:32,r:-11},
+    {x:50,y:62,s:34,r:4},
+    {x:20,y:64,s:26,r:-16},
+    {x:80,y:64,s:26,r:14},
+    {x:50,y:44,s:30,r:-4},
+    {x:38,y:48,s:24,r:9},
+  ];
+
+  let state = {
+    year: null,
+    week: null,
+    rawGames: [],
+    games: [],
+    selectedIds: [],
+    deadline: null,
+    members: [],
+    currentUser: null,
+    weekPicks: {},
+    loading: true,
+    error: null,
+    tab: 'week',
+    seasonStandings: null,
+    seasonLoading: false,
+    newMemberDraft: "",
+    adminMode: false,
+    adminDraft: [],
+    adminDeadlineDraft: "",
+    adminSaved: false,
+    prizeBase: null,
+    adminPrizeDraft: "",
+    adminPrizeSaved: false,
+    potMultiplier: 1,
+  };
+
+  const app = document.getElementById('app');
+
+  // ---------- storage helpers ----------
+  // Shared team data (members, picks, slates, prize config) lives on the small
+  // backend server (see server.js) so it's genuinely shared across everyone who
+  // opens this page, and survives being downloaded/opened from anywhere.
+  // Personal, per-device preferences (like "which name did I pick as last")
+  // use localStorage, which is fine here since this is a real hosted page.
+  async function getShared(key, fallback){
+    try{
+      const res = await fetch(`/api/kv/${encodeURIComponent(key)}`);
+      if(!res.ok) return fallback;
+      const data = await res.json();
+      return data.value;
+    }catch(e){ return fallback; }
+  }
+  async function setShared(key, value){
+    try{
+      await fetch(`/api/kv/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value })
+      });
+    }catch(e){ console.error('storage set failed', key, e); }
+  }
+  function getPersonal(key, fallback){
+    try{
+      const raw = localStorage.getItem(key);
+      return raw !== null ? JSON.parse(raw) : fallback;
+    }catch(e){ return fallback; }
+  }
+  function setPersonal(key, value){
+    try{ localStorage.setItem(key, JSON.stringify(value)); }
+    catch(e){ console.error('storage set failed', key, e); }
+  }
+  async function listSharedKeys(prefix){
+    try{
+      const res = await fetch(`/api/kv-list?prefix=${encodeURIComponent(prefix)}`);
+      if(!res.ok) return [];
+      const data = await res.json();
+      return data.keys || [];
+    }catch(e){ return []; }
+  }
+
+  // ---------- ESPN fetch ----------
+  function teamInfo(c){
+    return {
+      id: String(c.team.id),
+      name: c.team.shortDisplayName || c.team.displayName || c.team.name,
+      logo: (c.team.logos && c.team.logos[0] && c.team.logos[0].href) || c.team.logo || "",
+      score: c.score,
+      winner: c.winner === true,
+      record: (c.records && c.records[0] && c.records[0].summary) || "",
+      color: c.team.color ? '#' + c.team.color.replace('#','') : null,
+      altColor: c.team.alternateColor ? '#' + c.team.alternateColor.replace('#','') : null
+    };
+  }
+
+  function hexToRgba(hex, alpha){
+    if(!hex) return null;
+    const h = hex.replace('#','');
+    if(h.length !== 6) return null;
+    const r = parseInt(h.substring(0,2),16);
+    const g = parseInt(h.substring(2,4),16);
+    const b = parseInt(h.substring(4,6),16);
+    if([r,g,b].some(n => Number.isNaN(n))) return null;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // Some ESPN entries use near-black/near-white placeholder colors when a team
+  // has no real branding set — those don't read well as a highlight, so skip them.
+  function isUsableTeamColor(hex){
+    if(!hex) return false;
+    const rgba = hexToRgba(hex, 1);
+    if(!rgba) return false;
+    const [r,g,b] = rgba.match(/\d+/g).map(Number);
+    const brightness = (r*299 + g*587 + b*114) / 1000;
+    return brightness > 30 && brightness < 245;
+  }
+
+  function parseScoreboard(json){
+    const week = json.week ? json.week.number : null;
+    const year = json.season ? json.season.year : null;
+    const games = (json.events || []).map(ev => {
+      const comp = ev.competitions[0];
+      const home = comp.competitors.find(c => c.homeAway === 'home');
+      const away = comp.competitors.find(c => c.homeAway === 'away');
+      return {
+        id: String(ev.id),
+        date: ev.date,
+        state: comp.status.type.state,
+        completed: !!comp.status.type.completed,
+        statusDetail: comp.status.type.shortDetail || comp.status.type.description || "",
+        home: teamInfo(home),
+        away: teamInfo(away),
+      };
+    });
+    return { week, year, games };
+  }
+
+  async function fetchWeekLive(year, week){
+    const url = `${ESPN_BASE}?year=${year}&week=${week}&seasontype=2&groups=80`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('ESPN request failed: ' + res.status);
+    const json = await res.json();
+    return parseScoreboard(json);
+  }
+
+  async function fetchCurrentWeekLive(){
+    const url = `${ESPN_BASE}?groups=80`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('ESPN request failed: ' + res.status);
+    const json = await res.json();
+    return parseScoreboard(json);
+  }
+
+  async function getRawWeekGames(year, week, forceLive){
+    const cacheKey = `games-${year}-${week}`;
+    if(!forceLive){
+      const cached = await getShared(cacheKey, null);
+      if(cached && cached.allFinal) return cached.games;
+    }
+    try{
+      const parsed = await fetchWeekLive(year, week);
+      const allFinal = parsed.games.length > 0 && parsed.games.every(g => g.completed);
+      if(allFinal) await setShared(cacheKey, { games: parsed.games, allFinal: true });
+      return parsed.games;
+    }catch(e){
+      const cached = await getShared(cacheKey, null);
+      if(cached) return cached.games;
+      throw e;
+    }
+  }
+
+  function deriveSelectedGames(){
+    state.games = state.selectedIds
+      .map(id => state.rawGames.find(g => g.id === id))
+      .filter(Boolean);
+  }
+
+  function isWeekLocked(){
+    if(!state.deadline) return false;
+    return Date.now() >= new Date(state.deadline).getTime();
+  }
+
+  function formatCountdown(ms){
+    if(ms <= 0) return "Locked";
+    const totalMin = Math.floor(ms / 60000);
+    const days = Math.floor(totalMin / 1440);
+    const hours = Math.floor((totalMin % 1440) / 60);
+    const mins = totalMin % 60;
+    if(days > 0) return `${days}d ${hours}h left`;
+    if(hours > 0) return `${hours}h ${mins}m left`;
+    return `${mins}m left`;
+  }
+
+  function formatDeadline(iso){
+    try{
+      return new Date(iso).toLocaleString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    }catch(e){ return ''; }
+  }
+
+  function toDatetimeLocalValue(iso){
+    if(!iso) return "";
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function precedingWednesday1159(dateIso){
+    const d = new Date(dateIso);
+    const day = d.getDay();
+    const diff = (day - 3 + 7) % 7;
+    d.setDate(d.getDate() - diff);
+    d.setHours(23, 59, 0, 0);
+    return d;
+  }
+
+  function fmtMoney(n){
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  // ---------- week result evaluation (shared by winners tab + pot calc) ----------
+  function evaluateWeekResult(games, picksForWeek){
+    if(!games || !games.length) return { status: 'no_games' };
+    const finalCount = games.filter(g => g.completed).length;
+    if(finalCount < games.length) return { status: 'unresolved', finalCount, total: games.length };
+    const names = Object.keys(picksForWeek || {});
+    const rows = names.map(name => {
+      let correct = 0, total = 0;
+      games.forEach(g => {
+        const pick = picksForWeek[name][g.id];
+        if(!pick) return;
+        total++;
+        const winnerId = g.home.winner ? g.home.id : (g.away.winner ? g.away.id : null);
+        if(winnerId && pick === winnerId) correct++;
+      });
+      return { name, correct, total };
+    }).filter(r => r.total > 0);
+    if(rows.length === 0) return { status: 'bad_luck', reason: 'no_picks' };
+    const maxCorrect = rows.reduce((m, r) => Math.max(m, r.correct), 0);
+    if(maxCorrect === 0) return { status: 'bad_luck', reason: 'no_correct' };
+    const winners = rows.filter(r => r.correct === maxCorrect).map(r => r.name);
+    return { status: 'win', winners, maxCorrect };
+  }
+
+  // ---------- pot / gold pile ----------
+  async function computeGoldMultiplier(year, week){
+    const keys = await listSharedKeys(`slate-${year}-`);
+    const weekNums = keys.map(k => {
+      const m = k.match(/^slate-\d+-(\d+)$/);
+      return m ? parseInt(m[1], 10) : null;
+    }).filter(n => n !== null && n < week).sort((a, b) => b - a);
+
+    let streak = 0;
+    for(const w of weekNums){
+      const slate = await getShared(`slate-${year}-${w}`, { gameIds: [], deadline: null });
+      if(!slate.gameIds || !slate.gameIds.length) break;
+      let rawGames;
+      try{ rawGames = await getRawWeekGames(year, w, false); }
+      catch(e){ break; }
+      const games = slate.gameIds.map(id => rawGames.find(g => g.id === id)).filter(Boolean);
+      const picksForWeek = await getShared(`picks-${year}-${w}`, {});
+      const result = evaluateWeekResult(games, picksForWeek);
+      if(result.status === 'unresolved' || result.status === 'no_games') break;
+      if(result.status === 'bad_luck'){ streak++; continue; }
+      break; // status === 'win'
+    }
+    return 1 + streak;
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderFieldSVG(rows){
+    if(!rows.length) return `<div class="empty">No games won yet this season — nobody's off their own goal line.</div>`;
+    const sorted = [...rows].sort((a,b) => b.yards - a.yards);
+    const width = 640, laneHeight = 36, padTop = 26, padBottom = 34, padLeft = 108, padRight = 24;
+    const fieldWidth = width - padLeft - padRight;
+    const maxYards = Math.max(...sorted.map(r => r.yards), 10);
+    const rulerMax = Math.max(30, Math.ceil((maxYards + 5) / 10) * 10);
+    const height = padTop + sorted.length * laneHeight + padBottom;
+    const xFor = y => padLeft + (y / rulerMax) * fieldWidth;
+
+    let grid = '';
+    for(let y = 0; y <= rulerMax; y += 10){
+      const x = xFor(y);
+      grid += `<line x1="${x}" y1="${padTop - 10}" x2="${x}" y2="${height - padBottom + 6}" stroke="rgba(244,241,232,0.14)" stroke-width="1"/>`;
+      grid += `<text x="${x}" y="${height - padBottom + 20}" fill="rgba(244,241,232,0.5)" font-size="10" font-family="'Space Mono',monospace" text-anchor="middle">${y}</text>`;
+    }
+
+    let lanes = '';
+    sorted.forEach((r, i) => {
+      const y = padTop + i * laneHeight + laneHeight / 2;
+      const barX = xFor(r.yards);
+      lanes += `
+        <text x="${padLeft - 12}" y="${y + 4}" fill="#F4F1E8" font-size="12" font-family="Inter" font-weight="600" text-anchor="end">${escapeHtml(r.name)}</text>
+        <line x1="${padLeft}" y1="${y}" x2="${barX}" y2="${y}" stroke="#FFB627" stroke-width="7" stroke-linecap="round" opacity="0.85"/>
+        <circle cx="${barX}" cy="${y}" r="6.5" fill="#FFB627"/>
+        <text x="${barX + 11}" y="${y + 4}" fill="#FFB627" font-size="11" font-family="'Space Mono',monospace" font-weight="700">${r.yards}</text>
+      `;
+    });
+
+    return `
+      <svg viewBox="0 0 ${width} ${height}" style="width:100%;max-width:640px;display:block;margin:0 auto;">
+        <rect x="${padLeft}" y="${padTop - 12}" width="${fieldWidth}" height="${height - padTop - padBottom + 18}" fill="rgba(255,255,255,0.025)" rx="6"/>
+        ${grid}
+        ${lanes}
+      </svg>
+      <div class="hint">Yards = games picked correctly this season.</div>
+    `;
+  }
+
+  function renderGoldPile(count){
+    if(!count || count < 1) return '';
+    const shown = Math.min(count, COIN_LAYOUT.length);
+    const coins = COIN_LAYOUT.slice(0, shown).map((c, i) => `
+      <span class="coin" style="left:${c.x}%; top:${c.y}%; font-size:${c.s}px; --r:${c.r}deg; animation-delay:${i * 0.18}s; transform:translate(-50%,-50%);">🪙</span>
+    `).join('');
+    const extra = count > COIN_LAYOUT.length ? `<span class="coin extra-badge">+${count - COIN_LAYOUT.length}</span>` : '';
+    return `<div class="gold-pile">${coins}${extra}</div>`;
+  }
+
+  // ---------- init ----------
+  async function init(){
+    state.members = await getShared('members', []);
+    state.currentUser = await getPersonal('last-member-name', null);
+    if(state.currentUser && !state.members.includes(state.currentUser)){
+      state.currentUser = null;
+    }
+    const prizeConfig = await getShared('prize-config', null);
+    state.prizeBase = prizeConfig ? prizeConfig.base : null;
+    state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
+
+    render();
+    try{
+      const parsed = await fetchCurrentWeekLive();
+      state.year = parsed.year;
+      state.week = parsed.week;
+      state.rawGames = parsed.games;
+      const allFinal = parsed.games.length > 0 && parsed.games.every(g => g.completed);
+      if(allFinal) await setShared(`games-${state.year}-${state.week}`, { games: parsed.games, allFinal: true });
+    }catch(e){
+      state.error = "Couldn't load the schedule from ESPN. Check your connection and try again.";
+    }
+    state.loading = false;
+    await loadWeekExtras();
+    render();
+    await refreshPot();
+    render();
+    computeSeasonStandings(); // background load so the Field tab is ready without a click
+    setInterval(() => { if(!state.adminMode) render(); }, 30000);
+  }
+
+  async function refreshPot(){
+    if(state.prizeBase && state.year != null && state.week != null){
+      state.potMultiplier = await computeGoldMultiplier(state.year, state.week);
+    }else{
+      state.potMultiplier = 1;
+    }
+  }
+
+  async function loadWeekExtras(){
+    if(state.year == null || state.week == null) return;
+    const slate = await getShared(`slate-${state.year}-${state.week}`, { gameIds: [], deadline: null });
+    state.selectedIds = slate.gameIds || [];
+    state.deadline = slate.deadline || null;
+    deriveSelectedGames();
+    state.weekPicks = await getShared(`picks-${state.year}-${state.week}`, {});
+    state.adminDraft = [...state.selectedIds];
+    state.adminDeadlineDraft = toDatetimeLocalValue(state.deadline);
+    state.adminSaved = false;
+  }
+
+  async function loadWeek(year, week, forceLive){
+    state.loading = true;
+    state.error = null;
+    state.adminMode = false;
+    render();
+    try{
+      state.rawGames = await getRawWeekGames(year, week, forceLive);
+      state.year = year;
+      state.week = week;
+      await loadWeekExtras();
+    }catch(e){
+      state.error = "Couldn't load that week's games. Check your connection and try again.";
+    }
+    state.loading = false;
+    render();
+    await refreshPot();
+    render();
+  }
+
+  // ---------- actions ----------
+  async function selectMember(name){
+    state.currentUser = name;
+    await setPersonal('last-member-name', name);
+    render();
+  }
+
+  async function addMember(){
+    const name = state.newMemberDraft.trim();
+    if(!name) return;
+    if(!state.members.includes(name)){
+      state.members = [...state.members, name];
+      await setShared('members', state.members);
+    }
+    state.newMemberDraft = "";
+    await selectMember(name);
+  }
+
+  async function applyPick(name, gameId, teamId){
+    if(!name) return;
+    if(isWeekLocked()) return;
+    const game = state.games.find(g => g.id === gameId);
+    if(!game || game.state !== 'pre') return;
+    const updated = {
+      ...state.weekPicks,
+      [name]: { ...(state.weekPicks[name] || {}), [gameId]: teamId }
+    };
+    state.weekPicks = updated;
+    render();
+    await setShared(`picks-${state.year}-${state.week}`, updated);
+  }
+
+  async function pickTeam(gameId, teamId){
+    if(!state.currentUser) return;
+    await applyPick(state.currentUser, gameId, teamId);
+  }
+
+  function pickCountFor(name){
+    const picks = state.weekPicks[name] || {};
+    let count = 0;
+    state.games.forEach(g => { if(picks[g.id]) count++; });
+    return count;
+  }
+
+  function toggleAdminMode(){
+    state.adminMode = !state.adminMode;
+    if(state.adminMode){
+      state.adminDraft = [...state.selectedIds];
+      state.adminDeadlineDraft = toDatetimeLocalValue(state.deadline);
+      state.adminSaved = false;
+      state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
+      state.adminPrizeSaved = false;
+    }
+    render();
+  }
+
+  function toggleAdminGame(gameId){
+    const idx = state.adminDraft.indexOf(gameId);
+    if(idx >= 0){
+      state.adminDraft.splice(idx, 1);
+    }else{
+      if(state.adminDraft.length >= 3) return;
+      state.adminDraft.push(gameId);
+    }
+    state.adminSaved = false;
+    render();
+  }
+
+  function setQuickDeadline(){
+    if(!state.adminDraft.length) return;
+    const earliest = state.adminDraft
+      .map(id => state.rawGames.find(g => g.id === id))
+      .filter(Boolean)
+      .reduce((min, g) => (!min || new Date(g.date) < new Date(min.date)) ? g : min, null);
+    if(!earliest) return;
+    const wed = precedingWednesday1159(earliest.date);
+    state.adminDeadlineDraft = toDatetimeLocalValue(wed.toISOString());
+    state.adminSaved = false;
+    render();
+  }
+
+  async function saveAdminSelection(){
+    state.selectedIds = [...state.adminDraft];
+    state.deadline = state.adminDeadlineDraft ? new Date(state.adminDeadlineDraft).toISOString() : null;
+    await setShared(`slate-${state.year}-${state.week}`, { gameIds: state.selectedIds, deadline: state.deadline });
+    deriveSelectedGames();
+    state.adminSaved = true;
+    render();
+    await refreshPot();
+    render();
+  }
+
+  async function savePrizeConfig(){
+    const base = parseFloat(state.adminPrizeDraft);
+    if(isNaN(base) || base <= 0) return;
+    state.prizeBase = base;
+    await setShared('prize-config', { base });
+    state.adminPrizeSaved = true;
+    render();
+    await refreshPot();
+    render();
+  }
+
+  function computeWeekStandings(){
+    const names = state.members.length ? state.members : Object.keys(state.weekPicks);
+    return names.map(name => {
+      let correct = 0, wrong = 0, pending = 0;
+      state.games.forEach(g => {
+        const pick = state.weekPicks[name] && state.weekPicks[name][g.id];
+        if(!pick) return;
+        if(!g.completed){ pending++; return; }
+        const winnerId = g.home.winner ? g.home.id : (g.away.winner ? g.away.id : null);
+        if(!winnerId) { pending++; return; }
+        if(pick === winnerId) correct++; else wrong++;
+      });
+      return { name, correct, wrong, pending };
+    }).sort((a,b) => b.correct - a.correct || a.wrong - b.wrong);
+  }
+
+  async function computeSeasonStandings(){
+    state.seasonLoading = true;
+    render();
+    const keys = await listSharedKeys('picks-');
+
+    const totals = {};
+    state.members.forEach(m => totals[m] = { name: m, correct: 0, wrong: 0, pending: 0 });
+
+    for(const key of keys){
+      const m = key.match(/^picks-(\d+)-(\d+)$/);
+      if(!m) continue;
+      const y = m[1], w = m[2];
+      let rawGames;
+      try{ rawGames = await getRawWeekGames(y, w, false); }
+      catch(e){ continue; }
+      const slate = await getShared(`slate-${y}-${w}`, null);
+      const weekGames = slate && slate.gameIds && slate.gameIds.length
+        ? slate.gameIds.map(id => rawGames.find(g => g.id === id)).filter(Boolean)
+        : rawGames;
+      const picksForWeek = await getShared(key, {});
+      Object.keys(picksForWeek).forEach(name => {
+        if(!totals[name]) totals[name] = { name, correct: 0, wrong: 0, pending: 0 };
+        weekGames.forEach(g => {
+          const pick = picksForWeek[name][g.id];
+          if(!pick) return;
+          if(!g.completed){ totals[name].pending++; return; }
+          const winnerId = g.home.winner ? g.home.id : (g.away.winner ? g.away.id : null);
+          if(!winnerId){ totals[name].pending++; return; }
+          if(pick === winnerId) totals[name].correct++; else totals[name].wrong++;
+        });
+      });
+    }
+
+    state.seasonStandings = Object.values(totals).sort((a,b) => b.correct - a.correct || a.wrong - b.wrong);
+    state.seasonLoading = false;
+    render();
+  }
+
+  // ---------- rendering ----------
+  function fmtTime(iso){
+    try{
+      return new Date(iso).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    }catch(e){ return ''; }
+  }
+
+  function renderDeadlineBanner(){
+    if(!state.deadline) return '';
+    const locked = isWeekLocked();
+    if(locked){
+      return `<div class="deadline-banner locked">🔒 Picks are locked for week ${state.week}.</div>`;
+    }
+    const ms = new Date(state.deadline).getTime() - Date.now();
+    return `<div class="deadline-banner">
+      <span>Picks close ${formatDeadline(state.deadline)}</span>
+      <span class="countdown">${formatCountdown(ms)}</span>
+    </div>`;
+  }
+
+  function renderPotBanner(){
+    if(!state.prizeBase) return '';
+    const amount = state.prizeBase * state.potMultiplier;
+    const coins = '🪙'.repeat(Math.min(state.potMultiplier, 5));
+    return `<div class="pot-banner">
+      <span class="mini-coins">${coins}</span>
+      <span>This week's pot: <span class="pot-amount">${fmtMoney(amount)}</span>${state.potMultiplier > 1 ? ` (${state.potMultiplier}x, rolled over)` : ''}</span>
+    </div>`;
+  }
+
+  function renderGameCard(g, weekLocked){
+    const homeLocked = g.state !== 'pre' || weekLocked;
+    const homePicked = state.currentUser && state.weekPicks[state.currentUser] && state.weekPicks[state.currentUser][g.id] === g.home.id;
+    const awayPicked = state.currentUser && state.weekPicks[state.currentUser] && state.weekPicks[state.currentUser][g.id] === g.away.id;
+
+    function rowClass(team, picked){
+      let cls = 'team-row';
+      if(homeLocked) cls += ' locked';
+      if(picked) cls += ' picked';
+      if(g.completed){
+        if(team.winner) cls += ' result-win';
+        else cls += ' result-loss';
+      }
+      return cls;
+    }
+
+    function rowHTML(team, picked){
+      const showScore = g.state !== 'pre';
+      let styleAttr = '';
+      if(picked && !g.completed && isUsableTeamColor(team.color)){
+        const bg = hexToRgba(team.color, 0.24);
+        styleAttr = ` style="border-left-color:${team.color};${bg ? ` background:${bg};` : ''}"`;
+      }
+      return `
+        <div class="${rowClass(team, picked)}"${styleAttr} ${homeLocked ? '' : `data-action="pick" data-game="${g.id}" data-team="${team.id}"`}>
+          ${team.logo ? `<img src="${team.logo}" alt="" onerror="this.style.display='none'">` : ''}
+          <span class="team-name">${team.name}</span>
+          ${team.record ? `<span class="team-record">${team.record}</span>` : ''}
+          ${showScore ? `<span class="team-score">${team.score ?? ''}</span>` : ''}
+          ${picked && !g.completed ? `<span class="pick-check">★</span>` : ''}
+          ${g.completed && team.winner && picked ? `<span class="pick-check">✓</span>` : ''}
+          ${g.completed && !team.winner && picked ? `<span class="pick-check">✕</span>` : ''}
+        </div>`;
+    }
+
+    return `
+      <div class="game-card">
+        <div class="game-time">${fmtTime(g.date)}</div>
+        <div class="matchup">
+          ${rowHTML(g.away, awayPicked)}
+          ${rowHTML(g.home, homePicked)}
+        </div>
+        ${g.state !== 'pre' ? `<div class="game-status">${g.statusDetail}</div>` : ''}
+      </div>`;
+  }
+
+  function renderAdminPanel(){
+    const count = state.adminDraft.length;
+    const sortedRaw = [...state.rawGames].sort((a,b) => new Date(a.date) - new Date(b.date));
+    return `
+      <div class="admin-banner">
+        <span>Admin mode — pick this week's 3 games. ${count}/3 selected. Anyone can toggle Admin mode; there's no password.</span>
+        <button class="btn-ghost" data-action="exit-admin">Done</button>
+      </div>
+      <div class="admin-list">
+        ${sortedRaw.map(g => {
+          const chosen = state.adminDraft.includes(g.id);
+          return `
+          <div class="admin-row ${chosen ? 'chosen' : ''}" data-action="toggle-admin-game" data-game="${g.id}">
+            <input type="checkbox" ${chosen ? 'checked' : ''} tabindex="-1">
+            <span class="matchup-text">${g.away.name} @ ${g.home.name}</span>
+            <span class="game-time-inline">${fmtTime(g.date)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="admin-deadline-block">
+        <label>Pick deadline (optional — after this, everyone's picks lock even if a game hasn't kicked off yet)</label>
+        <div class="admin-deadline-row">
+          <input type="datetime-local" id="admin-deadline-input" value="${state.adminDeadlineDraft}">
+          <button class="btn-ghost" data-action="quick-wed" ${count === 0 ? 'disabled' : ''}>Wed 11:59 PM before kickoff</button>
+          ${state.adminDeadlineDraft ? `<button class="btn-ghost" data-action="clear-deadline">Clear deadline</button>` : ''}
+        </div>
+      </div>
+      <div class="admin-save-bar">
+        <span class="hint" style="margin:0;">${state.adminSaved ? 'Saved ✓' : ''}</span>
+        <button class="btn-ghost on" data-action="save-admin" ${count === 0 ? 'disabled' : ''}>Save this week's games</button>
+      </div>
+      <div class="admin-prize-block">
+        <label>Gift card pot (base $ amount — rolls over and builds each week nobody wins)</label>
+        <div class="admin-prize-row">
+          <span>$</span>
+          <input type="number" id="admin-prize-input" min="1" step="1" value="${state.adminPrizeDraft}">
+          <button class="btn-ghost on" data-action="save-prize">Save pot amount</button>
+          ${state.adminPrizeSaved ? `<span class="hint" style="margin:0;">Saved ✓</span>` : ''}
+        </div>
+        <div class="admin-prize-hint">This carries across the whole season, not just this week. Set once and forget it.</div>
+      </div>
+    `;
+  }
+
+  function renderWeekStandingsTable(){
+    const rows = computeWeekStandings();
+    if(!rows.length) return `<div class="empty">No picks yet this week — add teammates above and start picking.</div>`;
+    return `
+      <table class="standings-table">
+        <thead><tr><th>Player</th><th>Correct</th><th>Wrong</th><th>Pending</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr><td>${r.name}</td><td class="rec">${r.correct}</td><td class="rec">${r.wrong}</td><td class="rec">${r.pending}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function renderSeasonStandingsTable(){
+    if(state.seasonLoading){
+      return `<div class="loading">Tallying the season…</div>`;
+    }
+    if(!state.seasonStandings){
+      return `<div class="empty"><button class="btn-ghost" data-action="load-season">Calculate season standings</button></div>`;
+    }
+    if(!state.seasonStandings.length){
+      return `<div class="empty">No picks recorded yet this season.</div>`;
+    }
+    return `
+      <table class="standings-table">
+        <thead><tr><th>Player</th><th>Correct</th><th>Wrong</th><th>Pending</th></tr></thead>
+        <tbody>
+          ${state.seasonStandings.map(r => `<tr><td>${r.name}</td><td class="rec">${r.correct}</td><td class="rec">${r.wrong}</td><td class="rec">${r.pending}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="hint">Recalculates from every stored week — press again after games finish to refresh.</div>
+      <div style="text-align:center;margin-top:8px;"><button class="btn-ghost" data-action="load-season">Refresh</button></div>`;
+  }
+
+  function renderWinnersTab(){
+    if(!state.games.length){
+      return `<div class="winners-wrap"><div class="empty">This week's 3 games haven't been set yet. ${state.adminMode ? '' : 'Ask your admin to pick them.'}</div></div>`;
+    }
+
+    const result = evaluateWeekResult(state.games, state.weekPicks);
+    const potNow = state.prizeBase ? state.prizeBase * state.potMultiplier : null;
+
+    if(result.status === 'unresolved'){
+      return `<div class="winners-wrap">
+        <div class="trophy">🏈</div>
+        <div class="winner-heading">Winners not final yet</div>
+        <div class="winner-sub">${result.finalCount} of ${result.total} games final</div>
+        ${potNow ? `${renderGoldPile(state.potMultiplier)}<div class="pot-callout">${fmtMoney(potNow)} up for grabs this week</div>` : ''}
+      </div>`;
+    }
+
+    if(result.status === 'bad_luck'){
+      const nextPot = state.prizeBase ? state.prizeBase * (state.potMultiplier + 1) : null;
+      const sub = result.reason === 'no_picks' ? 'Nobody made any picks this week.' : 'Nobody picked a single winner this week. Everybody go 0-for-3.';
+      return `<div class="winners-wrap">
+        <div class="trophy">🤦</div>
+        <div class="bad-luck-heading">BAD LUCK!</div>
+        <div class="winner-sub">${sub}</div>
+        ${nextPot ? `${renderGoldPile(state.potMultiplier + 1)}<div class="pot-callout">The pot rolls over — next week's pot grows to ${fmtMoney(nextPot)}!</div>` : ''}
+      </div>`;
+    }
+
+    // status === 'win'
+    return `<div class="winners-wrap">
+      <div class="trophy">🏆</div>
+      <div class="winner-heading">Week ${state.week} Champion${result.winners.length > 1 ? 's' : ''}</div>
+      <div class="winner-names">${result.winners.join(' · ')}</div>
+      <div class="winner-sub">${result.maxCorrect} of ${state.games.length} correct</div>
+      ${potNow ? `${renderGoldPile(state.potMultiplier)}<div class="pot-callout">Takes home ${fmtMoney(potNow)}!</div><div class="pot-callout small">Pot resets to ${fmtMoney(state.prizeBase)} next week.</div>` : ''}
+    </div>`;
+  }
+
+  function render(){
+    const weekLabel = state.week == null ? '--' : (state.week === 0 ? '0' : state.week);
+    app.innerHTML = `
+      <div class="board">
+        <div class="board-top">
+          <h1 class="board-title">Office <span>Pick&nbsp;'Em</span></h1>
+          <div class="board-actions">
+            <button class="btn-ghost ${state.adminMode ? 'on' : ''}" data-action="toggle-admin">${state.adminMode ? 'Exit admin' : 'Admin'}</button>
+            <button class="btn-ghost" data-action="refresh">Refresh scores</button>
+          </div>
+        </div>
+        <div class="board-sub">College Football · FBS</div>
+        <div class="week-display">
+          <button class="week-nav-btn" data-action="prev-week" ${state.week == null ? 'disabled' : ''}>‹</button>
+          <div>
+            <div class="week-digits">${weekLabel}</div>
+            <div class="week-meta">WEEK · ${state.year ?? '----'}</div>
+          </div>
+          <button class="week-nav-btn" data-action="next-week" ${state.week == null ? 'disabled' : ''}>›</button>
+        </div>
+
+        <div class="roster">
+          <span class="roster-label">Picking as</span>
+          ${state.members.map(m => {
+            const total = state.games.length;
+            const count = pickCountFor(m);
+            const complete = total > 0 && count === total;
+            return `<button class="pill ${m === state.currentUser ? 'active' : ''} ${complete ? 'pill-complete' : ''}" data-action="select-member" data-name="${m}">
+              ${m}${total > 0 ? `<span class="pill-progress">${count}/${total}</span>` : ''}
+            </button>`;
+          }).join('')}
+          <div class="add-member">
+            <input type="text" id="new-member-input" placeholder="Add your name" value="${state.newMemberDraft}">
+            <button data-action="add-member">Add</button>
+          </div>
+        </div>
+        ${state.games.length && state.currentUser ? `<div class="hint" style="text-align:left;margin-top:8px;">Click each game to pick a winner — you can click all 3 in a row.</div>` : ''}
+      </div>
+
+      <div class="tabs">
+        <button class="tab ${state.tab === 'week' ? 'active' : ''}" data-action="tab-week">This week</button>
+        <button class="tab ${state.tab === 'winners' ? 'active' : ''}" data-action="tab-winners">Winners</button>
+        <button class="tab ${state.tab === 'standings' ? 'active' : ''}" data-action="tab-standings">Standings</button>
+        <button class="tab ${state.tab === 'field' ? 'active' : ''}" data-action="tab-field">Field</button>
+      </div>
+
+      ${renderActiveTab()}
+    `;
+    attachHandlers();
+  }
+
+  function renderActiveTab(){
+    if(state.tab === 'week') return renderWeekTab();
+    if(state.tab === 'winners') return renderWinnersTab();
+    if(state.tab === 'field') return renderFieldTab();
+    return renderStandingsTab();
+  }
+
+  function renderFieldTab(){
+    if(state.seasonLoading || !state.seasonStandings){
+      return `<div class="loading">Tallying the season…</div>`;
+    }
+    const rows = state.seasonStandings.map(r => ({ name: r.name, yards: r.correct }));
+    return `
+      <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:4px 0 14px;text-align:center;">🏈 Season Yardage</h3>
+      ${renderFieldSVG(rows)}
+      <div style="text-align:center;margin-top:10px;"><button class="btn-ghost" data-action="load-season">Refresh</button></div>
+    `;
+  }
+
+  function renderWeekTab(){
+    if(state.loading) return `<div class="loading">Loading this week's games…</div>`;
+    if(state.error) return `<div class="error">${state.error}<br><button class="btn-ghost" data-action="refresh">Try again</button></div>`;
+
+    if(state.adminMode) return renderAdminPanel();
+
+    if(!state.games.length){
+      return `<div class="empty">This week's games haven't been picked yet. Tap <b>Admin</b> above to choose this week's 3 games.</div>`;
+    }
+
+    const weekLocked = isWeekLocked();
+    const banner = renderDeadlineBanner() + renderPotBanner();
+    if(!state.currentUser) {
+      return `${banner}<div class="hint" style="margin-bottom:10px;">Pick your name above (or add it) to start making picks.</div>
+        <div class="games">${state.games.map(g => renderGameCard(g, weekLocked)).join('')}</div>`;
+    }
+    return `${banner}<div class="games">${state.games.map(g => renderGameCard(g, weekLocked)).join('')}</div>`;
+  }
+
+  function renderStandingsTab(){
+    return `
+      <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:4px 0 2px;">This week</h3>
+      ${renderWeekStandingsTable()}
+      <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:22px 0 2px;">Season</h3>
+      ${renderSeasonStandingsTable()}
+    `;
+  }
+
+  function attachHandlers(){
+    app.querySelectorAll('[data-action]').forEach(el => {
+      el.addEventListener('click', onAction);
+    });
+    const input = document.getElementById('new-member-input');
+    if(input){
+      input.addEventListener('input', (e) => { state.newMemberDraft = e.target.value; });
+      input.addEventListener('keydown', (e) => { if(e.key === 'Enter') addMember(); });
+    }
+    const deadlineInput = document.getElementById('admin-deadline-input');
+    if(deadlineInput){
+      deadlineInput.addEventListener('input', (e) => {
+        state.adminDeadlineDraft = e.target.value;
+        state.adminSaved = false;
+      });
+    }
+    const prizeInput = document.getElementById('admin-prize-input');
+    if(prizeInput){
+      prizeInput.addEventListener('input', (e) => {
+        state.adminPrizeDraft = e.target.value;
+        state.adminPrizeSaved = false;
+      });
+    }
+  }
+
+  function onAction(e){
+    const action = e.currentTarget.dataset.action;
+    if(action === 'pick'){
+      pickTeam(e.currentTarget.dataset.game, e.currentTarget.dataset.team);
+    }else if(action === 'select-member'){
+      selectMember(e.currentTarget.dataset.name);
+    }else if(action === 'add-member'){
+      addMember();
+    }else if(action === 'prev-week'){
+      loadWeek(state.year, Math.max(0, state.week - 1), false);
+    }else if(action === 'next-week'){
+      loadWeek(state.year, state.week + 1, false);
+    }else if(action === 'refresh'){
+      loadWeek(state.year, state.week, true);
+    }else if(action === 'tab-week'){
+      state.tab = 'week'; render();
+    }else if(action === 'tab-winners'){
+      state.tab = 'winners'; render();
+    }else if(action === 'tab-standings'){
+      state.tab = 'standings'; render();
+    }else if(action === 'tab-field'){
+      state.tab = 'field'; render();
+      if(!state.seasonStandings && !state.seasonLoading) computeSeasonStandings();
+    }else if(action === 'load-season'){
+      computeSeasonStandings();
+    }else if(action === 'toggle-admin'){
+      toggleAdminMode();
+    }else if(action === 'exit-admin'){
+      state.adminMode = false; render();
+    }else if(action === 'toggle-admin-game'){
+      toggleAdminGame(e.currentTarget.dataset.game);
+    }else if(action === 'quick-wed'){
+      setQuickDeadline();
+    }else if(action === 'clear-deadline'){
+      state.adminDeadlineDraft = ""; state.adminSaved = false; render();
+    }else if(action === 'save-admin'){
+      saveAdminSelection();
+    }else if(action === 'save-prize'){
+      savePrizeConfig();
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
