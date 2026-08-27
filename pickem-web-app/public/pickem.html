@@ -128,6 +128,13 @@
   }
 
   /* ---- Tabs ---- */
+  .field-card{
+    background:var(--charcoal);
+    border-radius:var(--radius);
+    padding:16px 16px 10px;
+    margin-top:14px;
+    box-shadow:0 4px 0 rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,182,39,0.12);
+  }
   .tabs{display:flex;gap:4px;margin:22px 0 12px;flex-wrap:wrap;}
   .tab{
     background:transparent;border:none;color:var(--chalk-dim);
@@ -242,6 +249,17 @@
     width:100px;
   }
   .admin-prize-hint{font-size:11.5px;color:var(--chalk-dim);margin-top:6px;}
+  .admin-login-block{margin-top:6px;}
+  .admin-login-block label{
+    display:block;font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);
+    text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;
+  }
+  .admin-login-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .admin-login-row input[type="password"]{
+    background:rgba(244,241,232,0.06);border:1px solid rgba(244,241,232,0.2);
+    border-radius:6px;padding:9px 12px;color:var(--chalk);font-size:14px;font-family:'Inter';
+    flex:1;min-width:160px;
+  }
 
   /* ---- Gold pile ---- */
   .gold-pile{
@@ -289,6 +307,14 @@
     font-family:'Space Mono',monospace;font-size:14px;color:var(--amber);margin-top:14px;font-weight:700;
   }
   .pot-callout.small{font-size:12px;color:var(--chalk-dim);font-weight:400;}
+  .award-breakdown{
+    list-style:none;padding:0;margin:12px auto 0;max-width:340px;text-align:left;
+  }
+  .award-breakdown li{
+    font-size:13.5px;padding:6px 0;border-top:1px dashed var(--hash);
+  }
+  .award-breakdown li:first-child{border-top:none;}
+  .award-note{color:var(--chalk-dim);font-size:12px;}
 
   /* ---- Misc states ---- */
   .empty, .error, .loading{
@@ -335,13 +361,17 @@
     seasonLoading: false,
     newMemberDraft: "",
     adminMode: false,
+    adminAuthed: false,
+    adminPassword: '',
+    adminLoginDraft: '',
+    adminLoginError: null,
     adminDraft: [],
     adminDeadlineDraft: "",
     adminSaved: false,
     prizeBase: null,
     adminPrizeDraft: "",
     adminPrizeSaved: false,
-    potMultiplier: 1,
+    potStreak: { count: 1, priorWeeks: [], participantsByWeek: {} },
   };
 
   const app = document.getElementById('app');
@@ -378,6 +408,41 @@
   function setPersonal(key, value){
     try{ localStorage.setItem(key, JSON.stringify(value)); }
     catch(e){ console.error('storage set failed', key, e); }
+  }
+  // Admin password is cached in localStorage so it persists across visits —
+  // you shouldn't have to re-enter it every time you come back to the page.
+  // Use "Log out" to clear it from this device.
+  function getSession(key, fallback){
+    try{
+      const raw = localStorage.getItem(key);
+      return raw !== null ? JSON.parse(raw) : fallback;
+    }catch(e){ return fallback; }
+  }
+  function setSession(key, value){
+    try{ localStorage.setItem(key, JSON.stringify(value)); }
+    catch(e){ /* ignore */ }
+  }
+  async function checkAdminPassword(password){
+    try{
+      const res = await fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      return res.ok;
+    }catch(e){ return false; }
+  }
+  // Like setShared, but sends the admin password header — required for the
+  // week's game slate and the prize config, enforced server-side.
+  async function setSharedAdmin(key, value){
+    try{
+      const res = await fetch(`/api/kv/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': state.adminPassword || '' },
+        body: JSON.stringify({ value })
+      });
+      return res.ok;
+    }catch(e){ console.error('admin storage set failed', key, e); return false; }
   }
   async function listSharedKeys(prefix){
     try{
@@ -522,11 +587,12 @@
     return d;
   }
 
-  function fmtMoney(n){
-    return '$' + Math.round(n).toLocaleString('en-US');
+  function giftCardLabel(count, base){
+    const word = count === 1 ? 'gift card' : 'gift cards';
+    return `${count} ${word} ($${Math.round(base)} each)`;
   }
 
-  // ---------- week result evaluation (shared by winners tab + pot calc) ----------
+  // ---------- week result evaluation (shared by winners tab + gift card calc) ----------
   function evaluateWeekResult(games, picksForWeek){
     if(!games || !games.length) return { status: 'no_games' };
     const finalCount = games.filter(g => g.completed).length;
@@ -550,15 +616,23 @@
     return { status: 'win', winners, maxCorrect };
   }
 
-  // ---------- pot / gold pile ----------
-  async function computeGoldMultiplier(year, week){
+  // ---------- gift card rollover ----------
+  // Gift cards roll over (not a dollar pot that splits): each unclaimed week
+  // adds one more gift card to what's up for grabs. When someone finally
+  // wins, EVERY tied winner gets the full count of gift cards each — but
+  // only if they fully participated (picked all 3 games) in every week of
+  // the rollover streak, not just the week they won. Someone who jumped in
+  // partway through a rollover only gets 1 gift card, for the week they won.
+  async function computeGoldStreak(year, week){
     const keys = await listSharedKeys(`slate-${year}-`);
     const weekNums = keys.map(k => {
       const m = k.match(/^slate-\d+-(\d+)$/);
       return m ? parseInt(m[1], 10) : null;
-    }).filter(n => n !== null && n < week).sort((a, b) => b - a);
+    }).filter(n => n !== null && n < week).sort((a, b) => b - a); // descending, prior weeks only
 
-    let streak = 0;
+    const priorWeeksAsc = [];
+    const participantsByWeek = {}; // week -> Set of names who picked all 3 games that week
+
     for(const w of weekNums){
       const slate = await getShared(`slate-${year}-${w}`, { gameIds: [], deadline: null });
       if(!slate.gameIds || !slate.gameIds.length) break;
@@ -569,10 +643,28 @@
       const picksForWeek = await getShared(`picks-${year}-${w}`, {});
       const result = evaluateWeekResult(games, picksForWeek);
       if(result.status === 'unresolved' || result.status === 'no_games') break;
-      if(result.status === 'bad_luck'){ streak++; continue; }
-      break; // status === 'win'
+      if(result.status === 'bad_luck'){
+        priorWeeksAsc.unshift(w);
+        const participants = new Set();
+        if(games.length){
+          Object.keys(picksForWeek).forEach(name => {
+            const madePicks = picksForWeek[name] || {};
+            const count = games.filter(g => madePicks[g.id]).length;
+            if(count === games.length) participants.add(name);
+          });
+        }
+        participantsByWeek[w] = participants;
+        continue;
+      }
+      break; // status === 'win' — streak resets before this week
     }
-    return 1 + streak;
+
+    return { count: 1 + priorWeeksAsc.length, priorWeeks: priorWeeksAsc, participantsByWeek };
+  }
+
+  function isEligibleForFullGiftCards(name, streak){
+    if(!streak || !streak.priorWeeks.length) return true;
+    return streak.priorWeeks.every(w => streak.participantsByWeek[w] && streak.participantsByWeek[w].has(name));
   }
 
   function escapeHtml(s){
@@ -639,6 +731,17 @@
     state.prizeBase = prizeConfig ? prizeConfig.base : null;
     state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
 
+    const cachedPassword = getSession('admin-password', '');
+    if(cachedPassword){
+      const ok = await checkAdminPassword(cachedPassword);
+      if(ok){
+        state.adminPassword = cachedPassword;
+        state.adminAuthed = true;
+      }else{
+        setSession('admin-password', '');
+      }
+    }
+
     render();
     try{
       const parsed = await fetchCurrentWeekLive();
@@ -655,14 +758,15 @@
     render();
     await refreshPot();
     render();
+    computeSeasonStandings(); // background load so the Field tab is ready without a click
     setInterval(() => { if(!state.adminMode) render(); }, 30000);
   }
 
   async function refreshPot(){
     if(state.prizeBase && state.year != null && state.week != null){
-      state.potMultiplier = await computeGoldMultiplier(state.year, state.week);
+      state.potStreak = await computeGoldStreak(state.year, state.week);
     }else{
-      state.potMultiplier = 1;
+      state.potStreak = { count: 1, priorWeeks: [], participantsByWeek: {} };
     }
   }
 
@@ -720,10 +824,16 @@
     if(isWeekLocked()) return;
     const game = state.games.find(g => g.id === gameId);
     if(!game || game.state !== 'pre') return;
-    const updated = {
-      ...state.weekPicks,
-      [name]: { ...(state.weekPicks[name] || {}), [gameId]: teamId }
-    };
+
+    const currentPick = state.weekPicks[name] && state.weekPicks[name][gameId];
+    const nextUserPicks = { ...(state.weekPicks[name] || {}) };
+    if(currentPick === teamId){
+      delete nextUserPicks[gameId]; // clicking the same team again clears the pick
+    }else{
+      nextUserPicks[gameId] = teamId;
+    }
+
+    const updated = { ...state.weekPicks, [name]: nextUserPicks };
     state.weekPicks = updated;
     render();
     await setShared(`picks-${state.year}-${state.week}`, updated);
@@ -741,15 +851,44 @@
     return count;
   }
 
+  function enterAdminEditMode(){
+    state.adminDraft = [...state.selectedIds];
+    state.adminDeadlineDraft = toDatetimeLocalValue(state.deadline);
+    state.adminSaved = false;
+    state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
+    state.adminPrizeSaved = false;
+  }
+
   function toggleAdminMode(){
     state.adminMode = !state.adminMode;
     if(state.adminMode){
-      state.adminDraft = [...state.selectedIds];
-      state.adminDeadlineDraft = toDatetimeLocalValue(state.deadline);
-      state.adminSaved = false;
-      state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
-      state.adminPrizeSaved = false;
+      state.adminLoginDraft = '';
+      state.adminLoginError = null;
+      if(state.adminAuthed) enterAdminEditMode();
     }
+    render();
+  }
+
+  async function submitAdminLogin(){
+    const password = state.adminLoginDraft;
+    const ok = await checkAdminPassword(password);
+    if(ok){
+      state.adminPassword = password;
+      state.adminAuthed = true;
+      state.adminLoginError = null;
+      setSession('admin-password', password);
+      enterAdminEditMode();
+    }else{
+      state.adminLoginError = 'Wrong password — try again.';
+    }
+    render();
+  }
+
+  function adminLogout(){
+    state.adminAuthed = false;
+    state.adminPassword = '';
+    state.adminMode = false;
+    setSession('admin-password', '');
     render();
   }
 
@@ -781,7 +920,7 @@
   async function saveAdminSelection(){
     state.selectedIds = [...state.adminDraft];
     state.deadline = state.adminDeadlineDraft ? new Date(state.adminDeadlineDraft).toISOString() : null;
-    await setShared(`slate-${state.year}-${state.week}`, { gameIds: state.selectedIds, deadline: state.deadline });
+    await setSharedAdmin(`slate-${state.year}-${state.week}`, { gameIds: state.selectedIds, deadline: state.deadline });
     deriveSelectedGames();
     state.adminSaved = true;
     render();
@@ -793,7 +932,7 @@
     const base = parseFloat(state.adminPrizeDraft);
     if(isNaN(base) || base <= 0) return;
     state.prizeBase = base;
-    await setShared('prize-config', { base });
+    await setSharedAdmin('prize-config', { base });
     state.adminPrizeSaved = true;
     render();
     await refreshPot();
@@ -876,11 +1015,11 @@
 
   function renderPotBanner(){
     if(!state.prizeBase) return '';
-    const amount = state.prizeBase * state.potMultiplier;
-    const coins = '🪙'.repeat(Math.min(state.potMultiplier, 5));
+    const { count } = state.potStreak;
+    const coins = '🪙'.repeat(Math.min(count, 5));
     return `<div class="pot-banner">
       <span class="mini-coins">${coins}</span>
-      <span>This week's pot: <span class="pot-amount">${fmtMoney(amount)}</span>${state.potMultiplier > 1 ? ` (${state.potMultiplier}x, rolled over)` : ''}</span>
+      <span>This week: <span class="pot-amount">${giftCardLabel(count, state.prizeBase)}</span>${count > 1 ? ` — rolled over from ${count - 1} unclaimed week${count - 1 > 1 ? 's' : ''}` : ''}</span>
     </div>`;
   }
 
@@ -930,13 +1069,32 @@
       </div>`;
   }
 
+  function renderAdminLogin(){
+    return `
+      <div class="admin-banner">
+        <span>Admin access is password-protected.</span>
+      </div>
+      <div class="admin-login-block">
+        <label>Admin password</label>
+        <div class="admin-login-row">
+          <input type="password" id="admin-password-input" value="${state.adminLoginDraft}" placeholder="Enter password">
+          <button class="btn-ghost on" data-action="admin-login-submit">Unlock</button>
+        </div>
+        ${state.adminLoginError ? `<div class="hint" style="color:var(--red-loss);text-align:left;margin-top:8px;">${state.adminLoginError}</div>` : ''}
+      </div>
+    `;
+  }
+
   function renderAdminPanel(){
     const count = state.adminDraft.length;
     const sortedRaw = [...state.rawGames].sort((a,b) => new Date(a.date) - new Date(b.date));
     return `
       <div class="admin-banner">
-        <span>Admin mode — pick this week's 3 games. ${count}/3 selected. Anyone can toggle Admin mode; there's no password.</span>
-        <button class="btn-ghost" data-action="exit-admin">Done</button>
+        <span>Admin mode — pick this week's 3 games. ${count}/3 selected.</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-ghost" data-action="admin-logout">Log out</button>
+          <button class="btn-ghost" data-action="exit-admin">Done</button>
+        </div>
       </div>
       <div class="admin-list">
         ${sortedRaw.map(g => {
@@ -962,7 +1120,7 @@
         <button class="btn-ghost on" data-action="save-admin" ${count === 0 ? 'disabled' : ''}>Save this week's games</button>
       </div>
       <div class="admin-prize-block">
-        <label>Gift card pot (base $ amount — rolls over and builds each week nobody wins)</label>
+        <label>Gift card value (each unclaimed gift card rolls to next week — every tied winner gets a full set, if they played all the rollover weeks)</label>
         <div class="admin-prize-row">
           <span>$</span>
           <input type="number" id="admin-prize-input" min="1" step="1" value="${state.adminPrizeDraft}">
@@ -1013,35 +1171,50 @@
     }
 
     const result = evaluateWeekResult(state.games, state.weekPicks);
-    const potNow = state.prizeBase ? state.prizeBase * state.potMultiplier : null;
+    const streak = state.potStreak;
 
     if(result.status === 'unresolved'){
       return `<div class="winners-wrap">
         <div class="trophy">🏈</div>
         <div class="winner-heading">Winners not final yet</div>
         <div class="winner-sub">${result.finalCount} of ${result.total} games final</div>
-        ${potNow ? `${renderGoldPile(state.potMultiplier)}<div class="pot-callout">${fmtMoney(potNow)} up for grabs this week</div>` : ''}
+        ${state.prizeBase ? `${renderGoldPile(streak.count)}<div class="pot-callout">${giftCardLabel(streak.count, state.prizeBase)} up for grabs this week</div>` : ''}
       </div>`;
     }
 
     if(result.status === 'bad_luck'){
-      const nextPot = state.prizeBase ? state.prizeBase * (state.potMultiplier + 1) : null;
+      const nextCount = streak.count + 1;
       const sub = result.reason === 'no_picks' ? 'Nobody made any picks this week.' : 'Nobody picked a single winner this week. Everybody go 0-for-3.';
       return `<div class="winners-wrap">
         <div class="trophy">🤦</div>
         <div class="bad-luck-heading">BAD LUCK!</div>
         <div class="winner-sub">${sub}</div>
-        ${nextPot ? `${renderGoldPile(state.potMultiplier + 1)}<div class="pot-callout">The pot rolls over — next week's pot grows to ${fmtMoney(nextPot)}!</div>` : ''}
+        ${state.prizeBase ? `${renderGoldPile(nextCount)}<div class="pot-callout">The gift cards roll over — next week there'll be ${giftCardLabel(nextCount, state.prizeBase)} up for grabs!</div>` : ''}
       </div>`;
     }
 
     // status === 'win'
+    const awards = result.winners.map(name => ({
+      name,
+      count: isEligibleForFullGiftCards(name, streak) ? streak.count : 1
+    }));
+    const showBreakdown = state.prizeBase && (streak.count > 1);
+
     return `<div class="winners-wrap">
       <div class="trophy">🏆</div>
       <div class="winner-heading">Week ${state.week} Champion${result.winners.length > 1 ? 's' : ''}</div>
       <div class="winner-names">${result.winners.join(' · ')}</div>
       <div class="winner-sub">${result.maxCorrect} of ${state.games.length} correct</div>
-      ${potNow ? `${renderGoldPile(state.potMultiplier)}<div class="pot-callout">Takes home ${fmtMoney(potNow)}!</div><div class="pot-callout small">Pot resets to ${fmtMoney(state.prizeBase)} next week.</div>` : ''}
+      ${state.prizeBase ? `
+        ${renderGoldPile(streak.count)}
+        <div class="pot-callout">Each eligible winner gets ${giftCardLabel(streak.count, state.prizeBase)}!</div>
+        ${showBreakdown ? `
+          <ul class="award-breakdown">
+            ${awards.map(a => `<li>${a.name} — ${a.count} gift card${a.count > 1 ? 's' : ''}${a.count < streak.count ? ' <span class="award-note">(missed a rollover week — only this week\'s card)</span>' : ''}</li>`).join('')}
+          </ul>
+        ` : ''}
+        <div class="pot-callout small">Gift cards reset to 1 next week.</div>
+      ` : ''}
     </div>`;
   }
 
@@ -1084,11 +1257,12 @@
         ${state.games.length && state.currentUser ? `<div class="hint" style="text-align:left;margin-top:8px;">Click each game to pick a winner — you can click all 3 in a row.</div>` : ''}
       </div>
 
+      ${renderTopField()}
+
       <div class="tabs">
         <button class="tab ${state.tab === 'week' ? 'active' : ''}" data-action="tab-week">This week</button>
         <button class="tab ${state.tab === 'winners' ? 'active' : ''}" data-action="tab-winners">Winners</button>
         <button class="tab ${state.tab === 'standings' ? 'active' : ''}" data-action="tab-standings">Standings</button>
-        <button class="tab ${state.tab === 'field' ? 'active' : ''}" data-action="tab-field">Field</button>
       </div>
 
       ${renderActiveTab()}
@@ -1099,22 +1273,22 @@
   function renderActiveTab(){
     if(state.tab === 'week') return renderWeekTab();
     if(state.tab === 'winners') return renderWinnersTab();
-    if(state.tab === 'field') return renderFieldTab();
     return renderStandingsTab();
   }
 
-  function renderFieldTab(){
-    if(state.seasonLoading){
-      return `<div class="loading">Tallying the season…</div>`;
+  function renderTopField(){
+    if(state.seasonLoading || !state.seasonStandings){
+      return `<div class="field-card"><div class="loading" style="padding:16px;">Tallying the season…</div></div>`;
     }
-    if(!state.seasonStandings){
-      return `<div class="empty"><button class="btn-ghost" data-action="load-season">Show the field</button></div>`;
+    if(!state.seasonStandings.length){
+      return '';
     }
     const rows = state.seasonStandings.map(r => ({ name: r.name, yards: r.correct }));
     return `
-      <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:4px 0 14px;text-align:center;">🏈 Season Yardage</h3>
-      ${renderFieldSVG(rows)}
-      <div style="text-align:center;margin-top:10px;"><button class="btn-ghost" data-action="load-season">Refresh</button></div>
+      <div class="field-card">
+        <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:15px;text-transform:uppercase;color:var(--amber);margin:0 0 10px;text-align:center;">🏈 Season Yardage</h3>
+        ${renderFieldSVG(rows)}
+      </div>
     `;
   }
 
@@ -1122,7 +1296,7 @@
     if(state.loading) return `<div class="loading">Loading this week's games…</div>`;
     if(state.error) return `<div class="error">${state.error}<br><button class="btn-ghost" data-action="refresh">Try again</button></div>`;
 
-    if(state.adminMode) return renderAdminPanel();
+    if(state.adminMode) return state.adminAuthed ? renderAdminPanel() : renderAdminLogin();
 
     if(!state.games.length){
       return `<div class="empty">This week's games haven't been picked yet. Tap <b>Admin</b> above to choose this week's 3 games.</div>`;
@@ -1169,6 +1343,12 @@
         state.adminPrizeSaved = false;
       });
     }
+    const passwordInput = document.getElementById('admin-password-input');
+    if(passwordInput){
+      passwordInput.addEventListener('input', (e) => { state.adminLoginDraft = e.target.value; });
+      passwordInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitAdminLogin(); });
+      passwordInput.focus();
+    }
   }
 
   function onAction(e){
@@ -1191,8 +1371,6 @@
       state.tab = 'winners'; render();
     }else if(action === 'tab-standings'){
       state.tab = 'standings'; render();
-    }else if(action === 'tab-field'){
-      state.tab = 'field'; render();
     }else if(action === 'load-season'){
       computeSeasonStandings();
     }else if(action === 'toggle-admin'){
@@ -1209,6 +1387,10 @@
       saveAdminSelection();
     }else if(action === 'save-prize'){
       savePrizeConfig();
+    }else if(action === 'admin-login-submit'){
+      submitAdminLogin();
+    }else if(action === 'admin-logout'){
+      adminLogout();
     }
   }
 

@@ -34,6 +34,26 @@ On Render, for example:
 4. Share that URL with your team (drop it in Slack, bookmark it, whatever) —
    everyone who opens it sees the same live picks, standings, and pot.
 
+## Protecting Admin mode with a password
+
+Admin mode (choosing the week's 3 games, setting the deadline, setting the
+prize pot) is gated by a password — enforced by the server, not just hidden
+in the page, so it can't be bypassed by viewing source.
+
+**On Render:** go to your service → **Environment** → add a variable:
+- Key: `ADMIN_PASSWORD`
+- Value: whatever password you want
+
+Save, and Render will redeploy automatically. Anyone who taps "Admin" in the
+app will be asked for that password before they can change anything. Regular
+picking is unaffected — no password needed for that.
+
+**Locally:** copy `.env.example` to `.env` and set `ADMIN_PASSWORD` there.
+
+If `ADMIN_PASSWORD` is never set at all, Admin mode is left open with no
+password — fine for just testing locally, not recommended once you've shared
+the real URL with your team.
+
 ## Data storage
 
 Data lives in `data/db.json` on the server, created automatically on first
