@@ -1,0 +1,15 @@
+{
+  "name": "pickem-web-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted version of the college football pick 'em pool, with real shared storage instead of Claude.ai's artifact storage.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
