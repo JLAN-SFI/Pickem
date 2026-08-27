@@ -114,14 +114,24 @@ app.get('/api/debug-storage', async (req, res) => {
     info.setStatus = setRes.status;
     info.setBody = await setRes.text().catch(() => '(could not read body)');
 
-    const getRes = await fetch(`${UPSTASH_URL}/get/${testKey}`, {
+    // Immediate read — checks basic read/write correctness.
+    const getResImmediate = await fetch(`${UPSTASH_URL}/get/${testKey}`, {
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
     });
-    info.getStatus = getRes.status;
-    const getJson = await getRes.json().catch(() => null);
-    info.getResult = getJson;
+    const getJsonImmediate = await getResImmediate.json().catch(() => null);
+    info.immediateGetResult = getJsonImmediate;
+    info.immediateRoundTripSuccess = !!(getJsonImmediate && getJsonImmediate.result && JSON.parse(getJsonImmediate.result).ts === testValue.ts);
 
-    info.roundTripSuccess = !!(getJson && getJson.result && JSON.parse(getJson.result).ts === testValue.ts);
+    // Delayed read (1.5s) — if this succeeds but the immediate one didn't,
+    // that's replication lag on a Global (multi-region) Upstash database,
+    // not a config problem.
+    await new Promise(r => setTimeout(r, 1500));
+    const getResDelayed = await fetch(`${UPSTASH_URL}/get/${testKey}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
+    });
+    const getJsonDelayed = await getResDelayed.json().catch(() => null);
+    info.delayedGetResult = getJsonDelayed;
+    info.delayedRoundTripSuccess = !!(getJsonDelayed && getJsonDelayed.result && JSON.parse(getJsonDelayed.result).ts === testValue.ts);
   } catch (e) {
     info.error = e.message;
   }
