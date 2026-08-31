@@ -82,6 +82,7 @@
     text-align:center;
   }
   .week-meta{font-family:'Space Mono',monospace;font-size:12px;color:var(--chalk-dim);}
+  .season-toggle{display:flex;gap:8px;justify-content:center;margin-top:12px;}
   .week-meta b{color:var(--chalk);}
   .board-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;}
   .btn-ghost{
@@ -208,6 +209,11 @@
     border-top:1px dashed var(--hash);
   }
   .game-card:first-child{border-top:none;}
+  .bowl-name{
+    font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:14px;text-transform:uppercase;
+    color:var(--amber);margin-bottom:4px;
+  }
+  .admin-bowl-name{display:block;font-size:11px;color:var(--amber);font-weight:700;margin-bottom:2px;}
   .game-time{font-family:'Space Mono',monospace;font-size:11px;color:var(--chalk-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;}
   .matchup{display:flex;flex-direction:column;gap:6px;}
   .team-row{
@@ -417,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v18-replication-lag-check';
+  const BUILD_TAG = 'v23-no-stuck-weeks';
 
   let state = {
     year: null,
@@ -447,6 +453,8 @@
     adminPrizeDraft: "",
     adminPrizeSaved: false,
     potStreak: { count: 1, priorWeeks: [], participantsByWeek: {} },
+    lastRegularWeek: null,
+    lastBowlWeek: null,
   };
 
   const app = document.getElementById('app');
@@ -637,12 +645,17 @@
       const comp = ev.competitions[0];
       const home = comp.competitors.find(c => c.homeAway === 'home');
       const away = comp.competitors.find(c => c.homeAway === 'away');
+      // ESPN carries the bowl's real name (e.g. "Rose Bowl") on the event
+      // itself, sometimes also in competition notes. Only meaningful for
+      // postseason games — regular season events don't have one.
+      const bowlName = (comp.notes && comp.notes[0] && comp.notes[0].headline) || ev.name || null;
       return {
         id: String(ev.id),
         date: ev.date,
         state: comp.status.type.state,
         completed: !!comp.status.type.completed,
         statusDetail: comp.status.type.shortDetail || comp.status.type.description || "",
+        bowlName,
         home: teamInfo(home),
         away: teamInfo(away),
       };
@@ -650,10 +663,28 @@
     return { week, year, games };
   }
 
+  // Bowl/postseason weeks are represented internally as 100+N (101 = bowl
+  // week 1, 102 = bowl week 2, etc.) so every existing storage key, season
+  // standings calc, and gold-card streak walk-back keeps working unchanged —
+  // they just see a bigger week number, which naturally sorts after every
+  // regular season week for the same year.
+  function isBowlWeek(week){ return week >= 100; }
+  function toEspnWeek(week){ return isBowlWeek(week) ? week - 100 : week; }
+  function seasonTypeForWeek(week){ return isBowlWeek(week) ? 3 : 2; }
+  function toBowlWeekNumber(week){ return week - 100; }
+
   async function fetchWeekLive(year, week){
-    const url = `${ESPN_BASE}?year=${year}&week=${week}&seasontype=2&groups=80`;
+    const espnWeek = toEspnWeek(week);
+    const seasonType = seasonTypeForWeek(week);
+    const url = `${ESPN_BASE}?year=${year}&week=${espnWeek}&seasontype=${seasonType}&groups=80`;
     const res = await fetch(url);
-    if(!res.ok) throw new Error('ESPN request failed: ' + res.status);
+    if(!res.ok){
+      // ESPN has nothing for this week (too far out, past the season, or an
+      // invalid combination) — treat as "no games" rather than a hard error,
+      // so navigation never gets permanently stuck on a broken week.
+      console.warn(`ESPN returned ${res.status} for year=${year} week=${espnWeek} seasontype=${seasonType}`);
+      return { week: null, year: null, games: [] };
+    }
     const json = await res.json();
     return parseScoreboard(json);
   }
@@ -886,13 +917,44 @@
     render();
     try{
       const parsed = await fetchCurrentWeekLive();
-      state.year = parsed.year;
-      state.week = parsed.week;
+      state.year = parsed.year ?? new Date().getFullYear();
+      state.week = parsed.week ?? 1;
+      state.lastRegularWeek = state.week;
       state.rawGames = parsed.games;
-      const allFinal = parsed.games.length > 0 && parsed.games.every(g => g.completed);
-      if(allFinal) await setShared(`games-${state.year}-${state.week}`, { games: parsed.games, allFinal: true });
+
+      // If ESPN's "current" response didn't include an explicit week/games
+      // (can happen right around the season's actual kickoff, or at the
+      // regular-season-to-bowl-season handoff), fetch that week directly by
+      // number rather than leaving state.week null — a null week disables
+      // navigation entirely, which is a dead end for everyone.
+      if(!state.rawGames.length){
+        try{
+          const directParsed = await fetchWeekLive(state.year, state.week);
+          if(directParsed.games.length) state.rawGames = directParsed.games;
+        }catch(e){ /* keep trying other fallbacks below */ }
+      }
+
+      // Still nothing? Try bowl week 1 in case we're actually past the
+      // regular season and postseason is the real "current" period.
+      if(!state.rawGames.length){
+        try{
+          const bowlParsed = await fetchWeekLive(state.year, 101);
+          if(bowlParsed.games.length){
+            state.week = 101;
+            state.lastBowlWeek = 101;
+            state.rawGames = bowlParsed.games;
+          }
+        }catch(e){ /* no bowl games available either — keep the empty state, but week/year stay concrete numbers */ }
+      }
+
+      const allFinal = state.rawGames.length > 0 && state.rawGames.every(g => g.completed);
+      if(allFinal) await setShared(`games-${state.year}-${state.week}`, { games: state.rawGames, allFinal: true });
     }catch(e){
       state.error = "Couldn't load the schedule from ESPN. Check your connection and try again.";
+      // Even on a hard failure, keep week/year as real numbers so navigation
+      // still works and the user can try a different week manually.
+      if(state.year == null) state.year = new Date().getFullYear();
+      if(state.week == null) state.week = 1;
     }
     state.loading = false;
     await loadWeekExtras();
@@ -932,6 +994,8 @@
       state.rawGames = await getRawWeekGames(year, week, forceLive);
       state.year = year;
       state.week = week;
+      if(isBowlWeek(week)) state.lastBowlWeek = week;
+      else state.lastRegularWeek = week;
       await loadWeekExtras();
     }catch(e){
       state.error = "Couldn't load that week's games. Check your connection and try again.";
@@ -1201,6 +1265,7 @@
 
     return `
       <div class="game-card">
+        ${isBowlWeek(state.week) && g.bowlName ? `<div class="bowl-name">🏆 ${escapeHtml(g.bowlName)}</div>` : ''}
         <div class="game-time">${fmtTime(g.date)}</div>
         <div class="matchup">
           ${rowHTML(g.away, awayPicked)}
@@ -1229,6 +1294,11 @@
   function renderAdminPanel(){
     const count = state.adminDraft.length;
     const sortedRaw = [...state.rawGames].sort((a,b) => new Date(a.date) - new Date(b.date));
+
+    if(!sortedRaw.length){
+      return `<div class="admin-banner"><span>ESPN doesn't have a schedule for this week yet — try navigating to a different week before picking games.</span></div>`;
+    }
+
     return `
       <div class="admin-banner">
         <span>Admin mode — pick this week's 3 games. ${count}/3 selected.</span>
@@ -1240,10 +1310,11 @@
       <div class="admin-list">
         ${sortedRaw.map(g => {
           const chosen = state.adminDraft.includes(g.id);
+          const bowlLine = (isBowlWeek(state.week) && g.bowlName) ? `<span class="admin-bowl-name">🏆 ${escapeHtml(g.bowlName)}</span>` : '';
           return `
           <div class="admin-row ${chosen ? 'chosen' : ''}" data-action="toggle-admin-game" data-game="${g.id}">
             <input type="checkbox" ${chosen ? 'checked' : ''} tabindex="-1">
-            <span class="matchup-text">${g.away.name} @ ${g.home.name}</span>
+            <span class="matchup-text">${bowlLine}${g.away.name} @ ${g.home.name}</span>
             <span class="game-time-inline">${fmtTime(g.date)}</span>
           </div>`;
         }).join('')}
@@ -1395,7 +1466,8 @@
   }
 
   function render(){
-    const weekLabel = state.week == null ? '--' : (state.week === 0 ? '0' : state.week);
+    const bowlMode = state.week != null && isBowlWeek(state.week);
+    const weekLabel = state.week == null ? '--' : (bowlMode ? toBowlWeekNumber(state.week) : state.week);
     app.innerHTML = `
       <div class="board">
         <div class="board-top">
@@ -1410,9 +1482,13 @@
           <button class="week-nav-btn" data-action="prev-week" ${state.week == null ? 'disabled' : ''}>‹</button>
           <div>
             <div class="week-digits">${weekLabel}</div>
-            <div class="week-meta">WEEK · ${state.year ?? '----'}</div>
+            <div class="week-meta">${bowlMode ? 'BOWL WEEK' : 'WEEK'} · ${state.year ?? '----'}</div>
           </div>
           <button class="week-nav-btn" data-action="next-week" ${state.week == null ? 'disabled' : ''}>›</button>
+        </div>
+        <div class="season-toggle">
+          <button class="btn-ghost ${!bowlMode ? 'on' : ''}" data-action="switch-regular-season" ${state.year == null ? 'disabled' : ''}>Regular Season</button>
+          <button class="btn-ghost ${bowlMode ? 'on' : ''}" data-action="switch-bowl-season" ${state.year == null ? 'disabled' : ''}>🏆 Bowl Season</button>
         </div>
 
         <div class="roster">
@@ -1474,6 +1550,10 @@
     if(state.error) return `<div class="error">${state.error}<br><button class="btn-ghost" data-action="refresh">Try again</button></div>`;
 
     if(state.adminMode) return state.adminAuthed ? renderAdminPanel() : renderAdminLogin();
+
+    if(!state.rawGames.length){
+      return `<div class="empty">ESPN doesn't have a schedule for this week yet — it may be too far out, or past the end of the season. Try a different week.</div>`;
+    }
 
     if(!state.games.length){
       return `<div class="empty">This week's games haven't been picked yet. Tap <b>Admin</b> above to choose this week's 3 games.</div>`;
@@ -1559,9 +1639,15 @@
     }else if(action === 'add-member'){
       addMember();
     }else if(action === 'prev-week'){
-      loadWeek(state.year, Math.max(0, state.week - 1), false);
+      const floor = isBowlWeek(state.week) ? 101 : 0;
+      loadWeek(state.year, Math.max(floor, state.week - 1), false);
     }else if(action === 'next-week'){
       loadWeek(state.year, state.week + 1, false);
+    }else if(action === 'switch-regular-season'){
+      loadWeek(state.year, state.lastRegularWeek ?? 1, false);
+    }else if(action === 'switch-bowl-season'){
+      state.lastRegularWeek = isBowlWeek(state.week) ? state.lastRegularWeek : state.week;
+      loadWeek(state.year, state.lastBowlWeek ?? 101, false);
     }else if(action === 'refresh'){
       loadWeek(state.year, state.week, true);
     }else if(action === 'tab-week'){
