@@ -180,6 +180,40 @@ app.get('/api/kv-list', async (req, res) => {
   res.json({ keys });
 });
 
+const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
+
+// Proxies ESPN's scoreboard API through our own server instead of having the
+// browser call ESPN directly. Browsers enforce CORS; servers don't — this
+// sidesteps any cross-origin restriction ESPN's API may apply, which the
+// original Claude.ai artifact sandbox may not have been subject to the same
+// way a real standalone site is.
+app.get('/api/espn-scoreboard', async (req, res) => {
+  try {
+    const params = new URLSearchParams();
+    if (req.query.year) params.set('year', req.query.year);
+    if (req.query.week) params.set('week', req.query.week);
+    if (req.query.seasontype) params.set('seasontype', req.query.seasontype);
+    if (req.query.groups) params.set('groups', req.query.groups);
+    const url = `${ESPN_BASE}${params.toString() ? '?' + params.toString() : ''}`;
+
+    const espnRes = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.espn.com/'
+      }
+    });
+    if (!espnRes.ok) {
+      return res.status(espnRes.status).json({ error: `ESPN returned ${espnRes.status}` });
+    }
+    const json = await espnRes.json();
+    res.json(json);
+  } catch (e) {
+    console.error('ESPN proxy failed:', e.message);
+    res.status(502).json({ error: 'Could not reach ESPN' });
+  }
+});
+
 // Anything else (including the bare root) serves the app itself.
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pickem.html'));

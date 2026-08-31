@@ -377,7 +377,7 @@
 
 <script>
 (function(){
-  const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard";
+  const ESPN_BASE = "/api/espn-scoreboard";
 
   // fixed layout for up to 8 coins, arranged in a pile silhouette
   const COIN_LAYOUT = [
@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v25-catch-json-parse-errors';
+  const BUILD_TAG = 'v26-server-side-espn-proxy';
 
   let state = {
     year: null,
