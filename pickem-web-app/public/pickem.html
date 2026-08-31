@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v24-retry-transient-failures';
+  const BUILD_TAG = 'v25-catch-json-parse-errors';
 
   let state = {
     year: null,
@@ -702,10 +702,22 @@
       // can be honest rather than assuming either way.
       return { week: null, year: null, games: [], fetchFailed: res.status >= 500 };
     }
-    const json = await res.json();
-    const parsed = parseScoreboard(json);
-    parsed.fetchFailed = false;
-    return parsed;
+    try{
+      const json = await res.json();
+      const parsed = parseScoreboard(json);
+      parsed.fetchFailed = false;
+      return parsed;
+    }catch(parseErr){
+      // ESPN returned a 200 but the body didn't parse cleanly (malformed,
+      // truncated, or an unexpected shape) — treat like any other transient
+      // failure rather than letting the exception escape uncaught.
+      if(attempt < 2){
+        await new Promise(r => setTimeout(r, 600));
+        return fetchWeekLive(year, week, attempt + 1);
+      }
+      console.warn(`ESPN response for year=${year} week=${espnWeek} seasontype=${seasonType} failed to parse:`, parseErr.message);
+      return { week: null, year: null, games: [], fetchFailed: true };
+    }
   }
 
   async function fetchCurrentWeekLive(){
