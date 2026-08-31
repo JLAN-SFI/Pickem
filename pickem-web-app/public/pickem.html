@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v26-server-side-espn-proxy';
+  const BUILD_TAG = 'v27-hardened-parser';
 
   let state = {
     year: null,
@@ -642,25 +642,31 @@
   function parseScoreboard(json){
     const week = json.week ? json.week.number : null;
     const year = json.season ? json.season.year : null;
-    const games = (json.events || []).map(ev => {
-      const comp = ev.competitions[0];
-      const home = comp.competitors.find(c => c.homeAway === 'home');
-      const away = comp.competitors.find(c => c.homeAway === 'away');
-      // ESPN carries the bowl's real name (e.g. "Rose Bowl") on the event
-      // itself, sometimes also in competition notes. Only meaningful for
-      // postseason games — regular season events don't have one.
-      const bowlName = (comp.notes && comp.notes[0] && comp.notes[0].headline) || ev.name || null;
-      return {
-        id: String(ev.id),
-        date: ev.date,
-        state: comp.status.type.state,
-        completed: !!comp.status.type.completed,
-        statusDetail: comp.status.type.shortDetail || comp.status.type.description || "",
-        bowlName,
-        home: teamInfo(home),
-        away: teamInfo(away),
-      };
-    });
+    const games = (json.events || [])
+      .filter(ev => ev && Array.isArray(ev.competitions) && ev.competitions[0])
+      .map(ev => {
+        const comp = ev.competitions[0];
+        const competitors = Array.isArray(comp.competitors) ? comp.competitors : [];
+        const home = competitors.find(c => c.homeAway === 'home');
+        const away = competitors.find(c => c.homeAway === 'away');
+        if(!home || !away || !home.team || !away.team) return null; // malformed entry — skip rather than crash
+        const statusType = (comp.status && comp.status.type) || {};
+        // ESPN carries the bowl's real name (e.g. "Rose Bowl") on the event
+        // itself, sometimes also in competition notes. Only meaningful for
+        // postseason games — regular season events don't have one.
+        const bowlName = (comp.notes && comp.notes[0] && comp.notes[0].headline) || ev.name || null;
+        return {
+          id: String(ev.id),
+          date: ev.date,
+          state: statusType.state || 'pre',
+          completed: !!statusType.completed,
+          statusDetail: statusType.shortDetail || statusType.description || "",
+          bowlName,
+          home: teamInfo(home),
+          away: teamInfo(away),
+        };
+      })
+      .filter(Boolean);
     return { week, year, games };
   }
 
