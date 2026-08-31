@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v23-no-stuck-weeks';
+  const BUILD_TAG = 'v24-retry-transient-failures';
 
   let state = {
     year: null,
@@ -455,6 +455,7 @@
     potStreak: { count: 1, priorWeeks: [], participantsByWeek: {} },
     lastRegularWeek: null,
     lastBowlWeek: null,
+    rawGamesFetchFailed: false,
   };
 
   const app = document.getElementById('app');
@@ -673,20 +674,38 @@
   function seasonTypeForWeek(week){ return isBowlWeek(week) ? 3 : 2; }
   function toBowlWeekNumber(week){ return week - 100; }
 
-  async function fetchWeekLive(year, week){
+  async function fetchWeekLive(year, week, attempt){
+    attempt = attempt || 1;
     const espnWeek = toEspnWeek(week);
     const seasonType = seasonTypeForWeek(week);
     const url = `${ESPN_BASE}?year=${year}&week=${espnWeek}&seasontype=${seasonType}&groups=80`;
-    const res = await fetch(url);
+    let res;
+    try{
+      res = await fetch(url);
+    }catch(networkErr){
+      if(attempt < 2){
+        await new Promise(r => setTimeout(r, 600));
+        return fetchWeekLive(year, week, attempt + 1);
+      }
+      console.warn(`ESPN fetch failed (network error) for year=${year} week=${espnWeek} seasontype=${seasonType}:`, networkErr.message);
+      return { week: null, year: null, games: [], fetchFailed: true };
+    }
     if(!res.ok){
-      // ESPN has nothing for this week (too far out, past the season, or an
-      // invalid combination) — treat as "no games" rather than a hard error,
-      // so navigation never gets permanently stuck on a broken week.
+      if(res.status >= 500 && attempt < 2){
+        await new Promise(r => setTimeout(r, 600));
+        return fetchWeekLive(year, week, attempt + 1);
+      }
       console.warn(`ESPN returned ${res.status} for year=${year} week=${espnWeek} seasontype=${seasonType}`);
-      return { week: null, year: null, games: [] };
+      // 5xx after retries = treat as a real (transient) failure. 4xx usually
+      // means the query itself is invalid/out of range — more likely
+      // genuinely "no data" than a glitch, but we still flag it so the UI
+      // can be honest rather than assuming either way.
+      return { week: null, year: null, games: [], fetchFailed: res.status >= 500 };
     }
     const json = await res.json();
-    return parseScoreboard(json);
+    const parsed = parseScoreboard(json);
+    parsed.fetchFailed = false;
+    return parsed;
   }
 
   async function fetchCurrentWeekLive(){
@@ -713,6 +732,25 @@
       if(cached) return cached.games;
       throw e;
     }
+  }
+
+  // Same as getRawWeekGames, but also reports whether an empty result was a
+  // genuine "ESPN has nothing for this week" vs a transient fetch failure —
+  // used by the interactive week view so the message shown is accurate.
+  async function getRawWeekGamesWithStatus(year, week, forceLive){
+    const cacheKey = `games-${year}-${week}`;
+    if(!forceLive){
+      const cached = await getShared(cacheKey, null);
+      if(cached && cached.allFinal) return { games: cached.games, fetchFailed: false };
+    }
+    const parsed = await fetchWeekLive(year, week);
+    const allFinal = parsed.games.length > 0 && parsed.games.every(g => g.completed);
+    if(allFinal) await setShared(cacheKey, { games: parsed.games, allFinal: true });
+    if(parsed.fetchFailed){
+      const cached = await getShared(cacheKey, null);
+      if(cached) return { games: cached.games, fetchFailed: false };
+    }
+    return { games: parsed.games, fetchFailed: !!parsed.fetchFailed };
   }
 
   function deriveSelectedGames(){
@@ -988,10 +1026,13 @@
   async function loadWeek(year, week, forceLive){
     state.loading = true;
     state.error = null;
+    state.rawGamesFetchFailed = false;
     state.adminMode = false;
     render();
     try{
-      state.rawGames = await getRawWeekGames(year, week, forceLive);
+      const result = await getRawWeekGamesWithStatus(year, week, forceLive);
+      state.rawGames = result.games;
+      state.rawGamesFetchFailed = result.fetchFailed;
       state.year = year;
       state.week = week;
       if(isBowlWeek(week)) state.lastBowlWeek = week;
@@ -1296,7 +1337,10 @@
     const sortedRaw = [...state.rawGames].sort((a,b) => new Date(a.date) - new Date(b.date));
 
     if(!sortedRaw.length){
-      return `<div class="admin-banner"><span>ESPN doesn't have a schedule for this week yet — try navigating to a different week before picking games.</span></div>`;
+      const msg = state.rawGamesFetchFailed
+        ? "Couldn't load games for this week — ESPN may be temporarily unavailable. Try Refresh scores above."
+        : "ESPN doesn't have a schedule for this week yet — try navigating to a different week before picking games.";
+      return `<div class="admin-banner"><span>${msg}</span></div>`;
     }
 
     return `
@@ -1552,6 +1596,9 @@
     if(state.adminMode) return state.adminAuthed ? renderAdminPanel() : renderAdminLogin();
 
     if(!state.rawGames.length){
+      if(state.rawGamesFetchFailed){
+        return `<div class="error">Couldn't load games for this week — ESPN may be temporarily unavailable.<br><button class="btn-ghost" data-action="refresh">Try again</button></div>`;
+      }
       return `<div class="empty">ESPN doesn't have a schedule for this week yet — it may be too far out, or past the end of the season. Try a different week.</div>`;
     }
 
