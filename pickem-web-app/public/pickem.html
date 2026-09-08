@@ -404,9 +404,9 @@
   ];
   const BODY_PARTS = [
     "eyelash", "nostril", "earlobe", "pinky toe", "eyebrow",
-    "belly button", "cowlick", "chin", "tongue", "cuticle",
+    "belly button", "cowlick", "chin", "hairline", "cuticle",
     "freckle", "nose hair", "big toe", "knuckle", "funny bone",
-    "wrist bone", "eyelid", "toenail", "dimple", "forehead"
+    "wrist bone", "eyelid", "toenail", "toe hair", "forehead"
   ];
 
   function hashString(str){
@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v27-hardened-parser';
+  const BUILD_TAG = 'v30-clear-selections';
 
   let state = {
     year: null,
@@ -1364,7 +1364,8 @@
     return `
       <div class="admin-banner">
         <span>Admin mode — pick this week's 3 games. ${count}/3 selected.</span>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" data-action="clear-admin-selections" ${count === 0 ? 'disabled' : ''}>Clear selections</button>
           <button class="btn-ghost" data-action="admin-logout">Log out</button>
           <button class="btn-ghost" data-action="exit-admin">Done</button>
         </div>
@@ -1390,8 +1391,8 @@
         </div>
       </div>
       <div class="admin-save-bar">
-        <span class="hint" style="margin:0;">${state.adminSaved ? 'Saved ✓' : ''}</span>
-        <button class="btn-ghost on" data-action="save-admin" ${count === 0 ? 'disabled' : ''}>Save this week's games</button>
+        <span class="hint" style="margin:0;">${state.adminSaved ? 'Saved ✓' : (count === 0 ? "No games selected — saving now marks this week as skipped." : '')}</span>
+        <button class="btn-ghost on" data-action="save-admin">${count === 0 ? 'Save (no games this week)' : "Save this week's games"}</button>
       </div>
       <div class="admin-prize-block">
         <label>Gift card value (each unclaimed gift card rolls to next week — every tied winner gets a full set, if they played all the rollover weeks)</label>
@@ -1621,7 +1622,7 @@
     }
 
     if(!state.games.length){
-      return `<div class="empty">This week's games haven't been picked yet. Tap <b>Admin</b> above to choose this week's 3 games.</div>`;
+      return `<div class="empty">🐴 Hold your horses there — the games haven't been picked for this week yet. Check back soon!</div>`;
     }
 
     const weekLocked = isWeekLocked();
@@ -1729,6 +1730,10 @@
       state.adminMode = false; render();
     }else if(action === 'toggle-admin-game'){
       toggleAdminGame(e.currentTarget.dataset.game);
+    }else if(action === 'clear-admin-selections'){
+      state.adminDraft = [];
+      state.adminSaved = false;
+      render();
     }else if(action === 'quick-wed'){
       setQuickDeadline();
     }else if(action === 'clear-deadline'){
