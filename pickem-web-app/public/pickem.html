@@ -213,16 +213,27 @@
     color:var(--amber);margin:6px 0 6px;text-shadow:0 0 18px rgba(255,182,39,0.45);
   }
   .pot-hero .hero-sub{font-family:'Space Mono',monospace;font-weight:700;color:var(--chalk);font-size:clamp(15px,4.2vw,20px);}
-  .pot-hero.tier-1 .hero-title{font-size:clamp(26px,7vw,36px);}
-  .pot-hero.tier-2 .hero-title{font-size:clamp(34px,10vw,52px);}
+  .pot-hero.tier-1 .hero-title{font-size:clamp(22px,6vw,30px);}
+  .pot-hero.tier-2{border-color:rgba(255,182,39,0.4);}
+  .pot-hero.tier-2 .hero-title{font-size:clamp(24px,6.5vw,32px);text-shadow:none;}
   .pot-hero.tier-3{border-color:#ff8a1f;}
-  .pot-hero.tier-3 .hero-title{font-size:clamp(40px,12vw,64px);color:#ff8a1f;text-shadow:0 0 22px rgba(255,138,31,0.6);}
+  .pot-hero.tier-3 .hero-title{font-size:clamp(34px,9.5vw,50px);color:#ff8a1f;text-shadow:0 0 22px rgba(255,138,31,0.6);}
   .pot-hero.tier-4{border-color:#ff4d2e;background:rgba(80,20,10,0.5);}
   .pot-hero.tier-4 .hero-title{font-size:clamp(40px,12.5vw,70px);color:#ff4d2e;text-shadow:0 0 26px rgba(255,77,46,0.7);animation:heroPulse 1.4s ease-in-out infinite;}
   .pot-hero.tier-5{border-color:#ff2bd6;background:rgba(60,10,70,0.55);}
   .pot-hero.tier-5 .hero-title{font-size:clamp(42px,13.5vw,78px);color:#ff2bd6;text-shadow:0 0 30px rgba(255,43,214,0.75),0 0 60px rgba(120,80,255,0.5);animation:heroPulse 0.9s ease-in-out infinite;}
   @keyframes heroPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.045);}}
   @media (prefers-reduced-motion: reduce){ .pot-hero .hero-title{animation:none !important;} }
+
+  .booth{
+    border:1px solid rgba(255,182,39,0.35);background:rgba(20,32,26,0.5);border-radius:10px;
+    padding:12px 14px;margin:6px 0 14px;
+  }
+  .booth-head{font-family:'Anton',sans-serif;text-transform:uppercase;letter-spacing:0.04em;color:var(--amber);font-size:15px;margin-bottom:6px;}
+  .booth ul{list-style:none;margin:0;padding:0;}
+  .booth li{font-size:14px;line-height:1.45;padding:5px 0;border-top:1px dashed var(--hash);}
+  .booth li:first-child{border-top:none;}
+  .booth .mic{margin-right:6px;}
 
   /* ---- Games list ---- */
   .games{display:flex;flex-direction:column;}
@@ -445,7 +456,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v33-pot-hero';
+  const BUILD_TAG = 'v34-booth';
 
   let state = {
     year: null,
@@ -1458,6 +1469,75 @@
       </table>`;
   }
 
+  function pickLine(options, seed){
+    return options[hashString(seed) % options.length];
+  }
+  function renderBoothCommentary(){
+    const all = state.seasonStandings;
+    if(!all || !all.length) return '';
+    const played = all.filter(r => r.correct + r.wrong > 0);
+    if(!played.length){
+      return `<div class="booth"><div class="booth-head">🎙️ From the booth</div><ul><li>The season has barely kicked off and nobody has a yard to their name. Somebody make a pick and get this thing moving.</li></ul></div>`;
+    }
+    const e = escapeHtml;
+    const lines = [];
+    const top = played[0].correct;
+    const leaders = played.filter(r => r.correct === top);
+    const seed = `${state.year}-${top}-${played.map(r => r.name + r.correct + r.wrong).join('|')}`;
+    if(leaders.length === 1){
+      const L = leaders[0];
+      const second = played.find(r => r.correct < top);
+      const gap = second ? top - second.correct : 0;
+      if(gap >= 3){
+        lines.push(pickLine([
+          `${e(L.name)} is running away with this thing, ${gap} yards clear. Somebody check if the rest of the field is still on the bus.`,
+          `${e(L.name)} leads by ${gap} yards and is basically jogging. The chase pack needs a miracle.`
+        ], seed + 'a'));
+      } else if(gap >= 1){
+        lines.push(pickLine([
+          `${e(L.name)} leads the field with ${top} yard${top > 1 ? 's' : ''}, but only by ${gap}. One bad Saturday and it's a whole new ballgame.`,
+          `${e(L.name)} is out front by ${gap} yard${gap > 1 ? 's' : ''}. Hot on the heels, ${e(second.name)} can smell it.`
+        ], seed + 'b'));
+      } else {
+        lines.push(`${e(L.name)} is out front with ${top} yard${top > 1 ? 's' : ''} and the lead is theirs alone.`);
+      }
+      if(second){
+        const chasers = played.filter(r => r.correct === second.correct);
+        const names = chasers.map(r => e(r.name)).join(' and ');
+        if(gap <= 2){
+          lines.push(pickLine([
+            `${names} ${chasers.length > 1 ? 'are' : 'is'} lurking one drive behind. Don't blink.`,
+            `Keep an eye on ${names}. ${chasers.length > 1 ? 'They are' : 'They are'} close enough to taste it.`
+          ], seed + 'c'));
+        }
+      }
+    } else {
+      const names = leaders.map(r => e(r.name));
+      const joined = names.length === 2 ? names.join(' and ') : names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
+      lines.push(pickLine([
+        `It's a ${leaders.length}-way tie at the top! ${joined} are ${leaders.length === 2 ? 'both' : 'all'} sitting on ${top} yard${top > 1 ? 's' : ''}. Somebody blink first.`,
+        `${joined} are locked together at ${top} yard${top > 1 ? 's' : ''}. Nobody wants to be the one who slips.`
+      ], seed + 'd'));
+    }
+    if(played.length >= 3){
+      const low = played[played.length - 1];
+      if(low.correct < top){
+        const lows = played.filter(r => r.correct === low.correct && r.wrong === low.wrong);
+        const nm = lows.map(r => e(r.name)).join(' and ');
+        lines.push(pickLine([
+          `Down at the bottom, ${nm} ${lows.length > 1 ? 'are' : 'is'} sitting on ${low.correct} yard${low.correct === 1 ? '' : 's'}. There's still time. Not a lot, but some.`,
+          `${nm} ${lows.length > 1 ? 'are' : 'is'} bringing up the rear. The comeback story starts this week. Probably.`
+        ], seed + 'e'));
+      }
+    }
+    const noPlay = all.filter(r => r.correct + r.wrong === 0 && r.pending === 0 && state.members.includes(r.name));
+    if(noPlay.length){
+      const nm = noPlay.map(r => e(r.name)).join(', ');
+      lines.push(`Still waiting on a first play from ${nm}. The injury report is getting crowded.`);
+    }
+    return `<div class="booth"><div class="booth-head">🎙️ From the booth</div><ul>${lines.map(l => `<li><span class="mic">📣</span>${l}</li>`).join('')}</ul></div>`;
+  }
+
   function renderSeasonStandingsTable(){
     if(state.seasonLoading){
       return `<div class="loading">Tallying the season…</div>`;
@@ -1697,6 +1777,7 @@
 
   function renderStandingsTab(){
     return `
+      ${renderBoothCommentary()}
       <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:4px 0 2px;">This week</h3>
       ${renderWeekStandingsTable()}
       <h3 style="font-family:'Anton',sans-serif;letter-spacing:0.02em;font-size:16px;text-transform:uppercase;color:var(--amber);margin:22px 0 2px;">Season</h3>
