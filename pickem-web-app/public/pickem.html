@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v30-clear-selections';
+  const BUILD_TAG = 'v31-perfect-week-required';
 
   let state = {
     year: null,
@@ -839,7 +839,9 @@
     }).filter(r => r.total > 0);
     if(rows.length === 0) return { status: 'bad_luck', reason: 'no_picks' };
     const maxCorrect = rows.reduce((m, r) => Math.max(m, r.correct), 0);
-    if(maxCorrect === 0) return { status: 'bad_luck', reason: 'no_correct' };
+    if(maxCorrect === 0) return { status: 'bad_luck', reason: 'no_correct', total: games.length };
+    // A win requires a perfect week; otherwise nobody wins and gift cards roll over
+    if(maxCorrect < games.length) return { status: 'bad_luck', reason: 'no_perfect', best: maxCorrect, total: games.length };
     const winners = rows.filter(r => r.correct === maxCorrect).map(r => r.name);
     return { status: 'win', winners, maxCorrect };
   }
@@ -1492,7 +1494,7 @@
 
     if(result.status === 'bad_luck'){
       const nextCount = streak.count + 1;
-      const sub = result.reason === 'no_picks' ? 'Nobody made any picks this week.' : 'Nobody picked a single winner this week. Everybody go 0-for-3.';
+      const sub = result.reason === 'no_picks' ? 'Nobody made any picks this week.' : result.reason === 'no_perfect' ? `Nobody went a perfect ${result.total} for ${result.total} this week. The best was ${result.best} of ${result.total}.` : `Nobody picked a single winner this week. Everybody go 0-for-${result.total || 3}.`;
       return `<div class="winners-wrap">
         <div class="trophy">🤦</div>
         <div class="bad-luck-heading">BAD LUCK!</div>
