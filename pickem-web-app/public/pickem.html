@@ -456,7 +456,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v34-booth';
+  const BUILD_TAG = 'v35-booth-week';
 
   let state = {
     year: null,
@@ -1472,6 +1472,54 @@
   function pickLine(options, seed){
     return options[hashString(seed) % options.length];
   }
+  function boothWeekLine(played, e, seed){
+    if(!state.games || !state.games.length) return '';
+    const done = state.games.filter(g => g.completed);
+    if(!done.length) return '';
+    const rows = [];
+    state.members.forEach(name => {
+      const picks = state.weekPicks[name] || {};
+      let correct = 0, total = 0;
+      done.forEach(g => {
+        const pick = picks[g.id];
+        if(!pick) return;
+        total++;
+        const winnerId = g.home.winner ? g.home.id : (g.away.winner ? g.away.id : null);
+        if(winnerId && pick === winnerId) correct++;
+      });
+      if(total > 0) rows.push({ name, correct, total });
+    });
+    if(!rows.length) return '';
+    const best = rows.reduce((m, r) => Math.max(m, r.correct), 0);
+    const list = (names) => names.length === 1 ? names[0]
+      : names.length === 2 ? names.join(' and ')
+      : names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
+    const gamesTxt = `${done.length} of ${state.games.length} games final`;
+    if(best === 0){
+      return `Week ${state.week} so far: nobody has gotten a game right yet (${gamesTxt}). Rough crowd.`;
+    }
+    const stars = rows.filter(r => r.correct === best).map(r => e(r.name));
+    const lead = played[0];
+    const leadRec = `${lead.correct} for ${lead.correct + lead.wrong}`;
+    const starSet = new Set(rows.filter(r => r.correct === best).map(r => r.name));
+    const leaders = played.filter(r => r.correct === lead.correct);
+    const leaderNames = list(leaders.map(r => e(r.name)));
+    const leaderIsStar = leaders.some(r => starSet.has(r.name));
+    const verb = stars.length > 1 ? 'tied for the best week' : 'had the best week';
+    const score = `${best} of ${done.length}`;
+    if(leaderIsStar && leaders.length === 1 && stars.length === 1){
+      return `${stars[0]} had the best week with ${score} AND is running the board at ${leadRec}. Rude, honestly.`;
+    }
+    if(leaderIsStar){
+      return pickLine([
+        `${list(stars)} ${verb} so far (${score}), and ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still up top at ${leadRec}.`
+      ], seed + 'w');
+    }
+    return pickLine([
+      `${list(stars)} ${verb} so far (${score}), but ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still running the board at ${leadRec}!`,
+      `Nice week from ${list(stars)} (${score}), though ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still out front at ${leadRec}.`
+    ], seed + 'w');
+  }
   function renderBoothCommentary(){
     const all = state.seasonStandings;
     if(!all || !all.length) return '';
@@ -1496,7 +1544,7 @@
       } else if(gap >= 1){
         lines.push(pickLine([
           `${e(L.name)} leads the field with ${top} yard${top > 1 ? 's' : ''}, but only by ${gap}. One bad Saturday and it's a whole new ballgame.`,
-          `${e(L.name)} is out front by ${gap} yard${gap > 1 ? 's' : ''}. Hot on the heels, ${e(second.name)} can smell it.`
+          `${e(L.name)} is out front by ${gap} yard${gap > 1 ? 's' : ''}. The lead is thin, so nobody on top gets to relax.`
         ], seed + 'b'));
       } else {
         lines.push(`${e(L.name)} is out front with ${top} yard${top > 1 ? 's' : ''} and the lead is theirs alone.`);
@@ -1507,7 +1555,7 @@
         if(gap <= 2){
           lines.push(pickLine([
             `${names} ${chasers.length > 1 ? 'are' : 'is'} lurking one drive behind. Don't blink.`,
-            `Keep an eye on ${names}. ${chasers.length > 1 ? 'They are' : 'They are'} close enough to taste it.`
+            `Keep an eye on ${names}. One good weekend and the whole board flips.`
           ], seed + 'c'));
         }
       }
@@ -1530,6 +1578,8 @@
         ], seed + 'e'));
       }
     }
+    const weekLine = boothWeekLine(played, e, seed);
+    if(weekLine) lines.unshift(weekLine);
     const noPlay = all.filter(r => r.correct + r.wrong === 0 && r.pending === 0 && state.members.includes(r.name));
     if(noPlay.length){
       const nm = noPlay.map(r => e(r.name)).join(', ');
