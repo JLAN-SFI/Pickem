@@ -456,7 +456,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v35-booth-week';
+  const BUILD_TAG = 'v36-booth-amped';
 
   let state = {
     year: null,
@@ -1476,50 +1476,83 @@
     if(!state.games || !state.games.length) return '';
     const done = state.games.filter(g => g.completed);
     if(!done.length) return '';
+    const total = state.games.length;
+    const allFinal = done.length === total;
     const rows = [];
     state.members.forEach(name => {
       const picks = state.weekPicks[name] || {};
-      let correct = 0, total = 0;
+      let correct = 0, count = 0;
       done.forEach(g => {
         const pick = picks[g.id];
         if(!pick) return;
-        total++;
+        count++;
         const winnerId = g.home.winner ? g.home.id : (g.away.winner ? g.away.id : null);
         if(winnerId && pick === winnerId) correct++;
       });
-      if(total > 0) rows.push({ name, correct, total });
+      if(count > 0) rows.push({ name, correct, count });
     });
     if(!rows.length) return '';
     const best = rows.reduce((m, r) => Math.max(m, r.correct), 0);
     const list = (names) => names.length === 1 ? names[0]
       : names.length === 2 ? names.join(' and ')
       : names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
-    const gamesTxt = `${done.length} of ${state.games.length} games final`;
-    if(best === 0){
-      return `Week ${state.week} so far: nobody has gotten a game right yet (${gamesTxt}). Rough crowd.`;
-    }
-    const stars = rows.filter(r => r.correct === best).map(r => e(r.name));
     const lead = played[0];
-    const leadRec = `${lead.correct} for ${lead.correct + lead.wrong}`;
-    const starSet = new Set(rows.filter(r => r.correct === best).map(r => r.name));
     const leaders = played.filter(r => r.correct === lead.correct);
     const leaderNames = list(leaders.map(r => e(r.name)));
-    const leaderIsStar = leaders.some(r => starSet.has(r.name));
-    const verb = stars.length > 1 ? 'tied for the best week' : 'had the best week';
-    const score = `${best} of ${done.length}`;
-    if(leaderIsStar && leaders.length === 1 && stars.length === 1){
-      return `${stars[0]} had the best week with ${score} AND is running the board at ${leadRec}. Rude, honestly.`;
+    const leadRec = `${lead.correct} for ${lead.correct + lead.wrong}`;
+    const be = leaders.length > 1 ? 'are' : 'is';
+    const standings = `${leaderNames} ${be} still running the board at ${leadRec}`;
+
+    if(best === 0){
+      return allFinal
+        ? `Week ${state.week} is in the books and nobody got a single game right. Not one. Wow.`
+        : `Week ${state.week} so far: nobody has gotten a game right yet (${done.length} of ${total} games final). Rough crowd.`;
     }
-    if(leaderIsStar){
-      return pickLine([
-        `${list(stars)} ${verb} so far (${score}), and ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still up top at ${leadRec}.`
-      ], seed + 'w');
+    const starRows = rows.filter(r => r.correct === best);
+    const stars = starRows.map(r => e(r.name));
+    const leaderIsStar = leaders.some(r => starRows.some(x => x.name === r.name));
+    const multi = stars.length > 1;
+
+    if(allFinal){
+      if(best === total){
+        const head = multi
+          ? `Perfect week! ${list(stars)} each went ${total} for ${total}`
+          : `Perfect week! ${stars[0]} went ${total} for ${total}`;
+        return leaderIsStar
+          ? `${head}, and ${standings}.`
+          : `${head}, but ${standings}!`;
+      }
+      return `Nobody went a perfect ${total} for ${total} this week. The best was ${best} of ${total} from ${list(stars)}, and ${standings}.`;
     }
-    return pickLine([
-      `${list(stars)} ${verb} so far (${score}), but ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still running the board at ${leadRec}!`,
-      `Nice week from ${list(stars)} (${score}), though ${leaderNames} ${leaders.length > 1 ? 'are' : 'is'} still out front at ${leadRec}.`
-    ], seed + 'w');
+    const verb = multi ? 'are each' : 'is';
+    const head = `${list(stars)} ${verb} ${best} for ${best} so far this week (${done.length} of ${total} games final)`;
+    if(best < done.length){
+      return `${list(stars)} ${multi ? 'lead' : 'leads'} the week at ${best} of ${done.length} so far (${done.length} of ${total} games final), and ${standings}.`;
+    }
+    return leaderIsStar ? `${head}, and ${standings}.` : `${head}, but ${standings}!`;
   }
+
+  function boothPotLine(){
+    if(!state.prizeBase) return '';
+    const count = state.potStreak && state.potStreak.count;
+    if(!count || count < 2) return '';
+    const total = Math.round(count * state.prizeBase);
+    // week already decided? the Winners tab covers it
+    const res = evaluateWeekResult(state.games, state.weekPicks);
+    if(res.status === 'win' || res.status === 'bad_luck') return '';
+    const t = `$${total}`;
+    const lines = {
+      2: `Heads up, everybody: it's a double down week. ${count} gift cards, ${t} total, and nobody has cashed in yet.`,
+      3: `Folks, this is getting serious! Mega week, ${count} gift cards, ${t} on the table. Somebody needs to go 3 for 3 and take it home!`,
+      4: `Holy cow everybody, this week is HUGE! ${t} in gift cards on the table. Whoever wins this one is going to be up to their eyeballs in gift cards!`,
+      5: `SERIOUSLY, GUYS! ${t} in gift cards! ${count} weeks of nobody winning! Go 3 for 3 THIS WEEK and you are the hero of the whole office!`
+    };
+    if(count >= 6){
+      return `I have been doing this a long time and I have NEVER seen a pile like this! ${t} in gift cards, ${count} unclaimed weeks in a row! Somebody please, PLEASE go 3 for 3! Boom!`;
+    }
+    return lines[count];
+  }
+
   function renderBoothCommentary(){
     const all = state.seasonStandings;
     if(!all || !all.length) return '';
@@ -1580,6 +1613,8 @@
     }
     const weekLine = boothWeekLine(played, e, seed);
     if(weekLine) lines.unshift(weekLine);
+    const potLine = boothPotLine();
+    if(potLine) lines.unshift(potLine);
     const noPlay = all.filter(r => r.correct + r.wrong === 0 && r.pending === 0 && state.members.includes(r.name));
     if(noPlay.length){
       const nm = noPlay.map(r => e(r.name)).join(', ');
