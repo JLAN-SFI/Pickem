@@ -202,6 +202,28 @@
   .pot-banner .pot-amount{font-family:'Space Mono',monospace;font-weight:700;color:var(--amber);}
   .pot-banner .mini-coins{font-size:15px;letter-spacing:-2px;}
 
+  /* ---- Big gift card hero ---- */
+  .pot-hero{
+    text-align:center;border-radius:12px;padding:16px 12px 18px;margin-bottom:16px;
+    border:2px solid rgba(255,182,39,0.55);background:rgba(20,32,26,0.55);
+  }
+  .pot-hero .hero-coins{font-size:26px;letter-spacing:-3px;line-height:1;}
+  .pot-hero .hero-title{
+    font-family:'Anton',sans-serif;text-transform:uppercase;letter-spacing:0.03em;line-height:1.05;
+    color:var(--amber);margin:6px 0 6px;text-shadow:0 0 18px rgba(255,182,39,0.45);
+  }
+  .pot-hero .hero-sub{font-family:'Space Mono',monospace;font-weight:700;color:var(--chalk);font-size:clamp(15px,4.2vw,20px);}
+  .pot-hero.tier-1 .hero-title{font-size:clamp(26px,7vw,36px);}
+  .pot-hero.tier-2 .hero-title{font-size:clamp(34px,10vw,52px);}
+  .pot-hero.tier-3{border-color:#ff8a1f;}
+  .pot-hero.tier-3 .hero-title{font-size:clamp(40px,12vw,64px);color:#ff8a1f;text-shadow:0 0 22px rgba(255,138,31,0.6);}
+  .pot-hero.tier-4{border-color:#ff4d2e;background:rgba(80,20,10,0.5);}
+  .pot-hero.tier-4 .hero-title{font-size:clamp(40px,12.5vw,70px);color:#ff4d2e;text-shadow:0 0 26px rgba(255,77,46,0.7);animation:heroPulse 1.4s ease-in-out infinite;}
+  .pot-hero.tier-5{border-color:#ff2bd6;background:rgba(60,10,70,0.55);}
+  .pot-hero.tier-5 .hero-title{font-size:clamp(42px,13.5vw,78px);color:#ff2bd6;text-shadow:0 0 30px rgba(255,43,214,0.75),0 0 60px rgba(120,80,255,0.5);animation:heroPulse 0.9s ease-in-out infinite;}
+  @keyframes heroPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.045);}}
+  @media (prefers-reduced-motion: reduce){ .pot-hero .hero-title{animation:none !important;} }
+
   /* ---- Games list ---- */
   .games{display:flex;flex-direction:column;}
   .game-card{
@@ -423,7 +445,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v32-show-scores';
+  const BUILD_TAG = 'v33-pot-hero';
 
   let state = {
     year: null,
@@ -818,6 +840,25 @@
   function giftCardLabel(count, base){
     const word = count === 1 ? 'gift card' : 'gift cards';
     return `${count} ${word} ($${Math.round(base)} each)`;
+  }
+
+  function potTier(count){
+    const n = Math.max(1, count);
+    if(n === 1) return { n, tier: 1, title: 'Gift card week' };
+    if(n === 2) return { n, tier: 2, title: 'Double down week' };
+    if(n === 3) return { n, tier: 3, title: 'Mega week' };
+    if(n === 4) return { n, tier: 4, title: 'M-M-M-MONSTER WEEK!' };
+    return { n, tier: 5, title: 'LUDICROUS WEEK' };
+  }
+  function potHero(count, base, line){
+    const t = potTier(count);
+    const coins = '🪙'.repeat(Math.min(t.n, 8));
+    const sub = line || `${t.n} gift card${t.n > 1 ? 's' : ''} ($${Math.round(base)} each) up for grabs this week`;
+    return `<div class="pot-hero tier-${t.tier}">
+      <div class="hero-coins">${coins}</div>
+      <div class="hero-title">${t.title}</div>
+      <div class="hero-sub">${sub}</div>
+    </div>`;
   }
 
   // ---------- week result evaluation (shared by winners tab + gift card calc) ----------
@@ -1282,11 +1323,7 @@
   function renderPotBanner(){
     if(!state.prizeBase) return '';
     const { count } = state.potStreak;
-    const coins = '🪙'.repeat(Math.min(count, 5));
-    return `<div class="pot-banner">
-      <span class="mini-coins">${coins}</span>
-      <span>This week: <span class="pot-amount">${giftCardLabel(count, state.prizeBase)}</span>${count > 1 ? ` — rolled over from ${count - 1} unclaimed week${count - 1 > 1 ? 's' : ''}` : ''}</span>
-    </div>`;
+    return potHero(count, state.prizeBase);
   }
 
   function renderGameCard(g, weekLocked){
@@ -1488,7 +1525,7 @@
         <div class="trophy">🏈</div>
         <div class="winner-heading">Winners not final yet</div>
         <div class="winner-sub">${result.finalCount} of ${result.total} games final</div>
-        ${state.prizeBase ? `${renderGoldPile(streak.count)}<div class="pot-callout">${giftCardLabel(streak.count, state.prizeBase)} up for grabs this week</div>` : ''}
+        ${state.prizeBase ? potHero(streak.count, state.prizeBase) : ''}
       </div>${injurySection}`;
     }
 
@@ -1499,7 +1536,7 @@
         <div class="trophy">🤦</div>
         <div class="bad-luck-heading">BAD LUCK!</div>
         <div class="winner-sub">${sub}</div>
-        ${state.prizeBase ? `${renderGoldPile(nextCount)}<div class="pot-callout">The gift cards roll over — next week there'll be ${giftCardLabel(nextCount, state.prizeBase)} up for grabs!</div>` : ''}
+        ${state.prizeBase ? potHero(nextCount, state.prizeBase, `The gift cards roll over! Next week: ${nextCount} gift cards ($${Math.round(state.prizeBase)} each) up for grabs`) : ''}
       </div>${renderLosersSection(result)}${injurySection}`;
     }
 
