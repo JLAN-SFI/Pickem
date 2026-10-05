@@ -423,7 +423,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v31-perfect-week-required';
+  const BUILD_TAG = 'v32-show-scores';
 
   let state = {
     year: null,
@@ -1443,8 +1443,8 @@
   }
 
   function renderLosersSection(result){
-    if(result.status !== 'win') return '';
-    const winnerSet = new Set(result.winners);
+    if(result.status !== 'win' && !(result.status === 'bad_luck' && result.reason !== 'no_picks')) return '';
+    const winnerSet = new Set(result.status === 'win' ? result.winners : []);
     const losers = state.members
       .map(name => {
         const picks = state.weekPicks[name] || {};
@@ -1500,7 +1500,7 @@
         <div class="bad-luck-heading">BAD LUCK!</div>
         <div class="winner-sub">${sub}</div>
         ${state.prizeBase ? `${renderGoldPile(nextCount)}<div class="pot-callout">The gift cards roll over — next week there'll be ${giftCardLabel(nextCount, state.prizeBase)} up for grabs!</div>` : ''}
-      </div>${injurySection}`;
+      </div>${renderLosersSection(result)}${injurySection}`;
     }
 
     // status === 'win'
