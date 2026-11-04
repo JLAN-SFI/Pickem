@@ -456,7 +456,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v36-booth-amped';
+  const BUILD_TAG = 'v38-safe-saves';
 
   let state = {
     year: null,
@@ -506,6 +506,15 @@
       const data = await res.json();
       return data.value;
     }catch(e){ return fallback; }
+  }
+  // Like getShared, but throws when storage is unreachable (so callers never
+  // mistake an outage for "no data" and then overwrite real data).
+  async function getSharedStrict(key, fallback){
+    const res = await fetch(`/api/kv/${encodeURIComponent(key)}`);
+    if(res.status === 404) return fallback;
+    if(!res.ok) throw new Error('storage unavailable');
+    const data = await res.json();
+    return data.value;
   }
   async function setShared(key, value){
     try{
@@ -1005,10 +1014,10 @@
   // ---------- init ----------
   async function init(){
     state.members = await getShared('members', []);
-    state.currentUser = await getPersonal('last-member-name', null);
-    if(state.currentUser && !state.members.includes(state.currentUser)){
-      state.currentUser = null;
-    }
+    // Never auto-select anyone: each visitor must tap their own name, so nobody
+    // ends up editing someone else's picks by accident.
+    state.currentUser = null;
+    try{ localStorage.removeItem('last-member-name'); }catch(e){}
     const prizeConfig = await getShared('prize-config', null);
     state.prizeBase = prizeConfig ? prizeConfig.base : null;
     state.adminPrizeDraft = state.prizeBase != null ? String(state.prizeBase) : "";
@@ -1073,6 +1082,7 @@
     render();
     computeSeasonStandings(); // background load so the Field tab is ready without a click
     setInterval(() => { if(!state.adminMode) render(); }, 30000);
+    setInterval(() => { if(!state.adminMode) refreshSharedPicks(); }, 15000);
   }
 
   async function refreshPot(){
@@ -1122,16 +1132,26 @@
   // ---------- actions ----------
   async function selectMember(name){
     state.currentUser = name;
-    await setPersonal('last-member-name', name);
     render();
   }
 
   async function addMember(){
     const name = state.newMemberDraft.trim();
     if(!name) return;
-    if(!state.members.includes(name)){
-      state.members = [...state.members, name];
-      await setShared('members', state.members);
+    try{
+      // Re-read the roster first so we never overwrite names added by others.
+      const latest = await getSharedStrict('members', []);
+      if(!latest.includes(name)){
+        const next = [...latest, name];
+        await setShared('members', next);
+        state.members = next;
+      }else{
+        state.members = latest;
+      }
+    }catch(e){
+      state.saveError = "Couldn't add that name right now. Try again in a moment.";
+      render();
+      return;
     }
     state.newMemberDraft = "";
     await selectMember(name);
@@ -1154,7 +1174,41 @@
     const updated = { ...state.weekPicks, [name]: nextUserPicks };
     state.weekPicks = updated;
     render();
-    await setShared(`picks-${state.year}-${state.week}`, updated);
+    state.savingPicks = (state.savingPicks || 0) + 1;
+    try{
+      const res = await fetch(`/api/picks/${state.year}/${state.week}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, gameId, teamId: nextUserPicks[gameId] || null })
+      });
+      if(!res.ok) throw new Error('save failed');
+      const data = await res.json();
+      // Server returns everyone's latest picks; only adopt them when no other
+      // save of ours is still in flight.
+      if(state.savingPicks === 1 && data.picks){ state.weekPicks = data.picks; }
+      state.saveError = null;
+    }catch(e){
+      console.error('pick save failed', e);
+      state.saveError = "Couldn't save that pick. Check your connection and try again.";
+    }finally{
+      state.savingPicks--;
+      render();
+    }
+  }
+
+  // Keep this week's picks and the roster fresh so nobody works from stale data.
+  async function refreshSharedPicks(){
+    if(state.year == null || state.week == null || state.savingPicks) return;
+    const a = document.activeElement;
+    if(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+    try{
+      const picks = await getSharedStrict(`picks-${state.year}-${state.week}`, {});
+      const members = await getSharedStrict('members', state.members);
+      if(state.savingPicks) return;
+      const changed = JSON.stringify(picks) !== JSON.stringify(state.weekPicks) ||
+                      JSON.stringify(members) !== JSON.stringify(state.members);
+      if(changed){ state.weekPicks = picks; state.members = members; render(); }
+    }catch(e){ /* storage hiccup: keep what's on screen */ }
   }
 
   async function pickTeam(gameId, teamId){
@@ -1830,7 +1884,7 @@
     }
 
     const weekLocked = isWeekLocked();
-    const banner = renderDeadlineBanner() + renderPotBanner();
+    const banner = (state.saveError ? `<div class="hint" style="color:var(--red-loss);font-weight:700;margin-bottom:8px;">${state.saveError}</div>` : '') + renderDeadlineBanner() + renderPotBanner();
     if(!state.currentUser) {
       return `${banner}<div class="hint" style="margin-bottom:10px;">Pick your name above (or add it) to start making picks.</div>
         <div class="games">${state.games.map(g => renderGameCard(g, weekLocked)).join('')}</div>`;

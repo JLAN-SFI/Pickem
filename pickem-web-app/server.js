@@ -22,46 +22,50 @@ const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || null;
 const REDIS_KEY = 'pickem-db';
 const usingRedis = !!(UPSTASH_URL && UPSTASH_TOKEN);
 
+// Loading must NEVER pretend the database is empty on an error: the next save
+// would then overwrite everything with a nearly empty object. Throw instead.
 async function loadDb() {
   if (usingRedis) {
-    try {
-      const res = await fetch(`${UPSTASH_URL}/get/${REDIS_KEY}`, {
-        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.error(`Upstash GET failed (${res.status}): ${text}`);
-        return {};
-      }
-      const data = await res.json();
-      if (data && data.result) return JSON.parse(data.result);
-      return {};
-    } catch (e) {
-      console.error('Upstash load failed:', e.message);
-      return {};
+    const res = await fetch(`${UPSTASH_URL}/get/${REDIS_KEY}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`Upstash GET failed (${res.status}): ${text}`);
+      throw new Error(`Upstash GET failed (${res.status})`);
     }
+    const data = await res.json();
+    if (data && data.result) return JSON.parse(data.result);
+    return {};
   }
   try {
     return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   } catch (e) {
-    return {};
+    if (e.code === 'ENOENT') return {};
+    throw e;
   }
+}
+
+// All writes run one at a time so two people saving at once can't clobber
+// each other's changes (each write is a read-modify-write of the whole DB).
+let writeChain = Promise.resolve();
+function withWriteLock(fn) {
+  const run = writeChain.then(fn, fn);
+  writeChain = run.catch(() => {});
+  return run;
 }
 
 async function saveDb(db) {
   if (usingRedis) {
-    try {
-      const res = await fetch(`${UPSTASH_URL}/set/${REDIS_KEY}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-        body: JSON.stringify(db)
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.error(`Upstash SET failed (${res.status}): ${text}`);
-      }
-    } catch (e) {
-      console.error('Upstash save failed:', e.message);
+    const res = await fetch(`${UPSTASH_URL}/set/${REDIS_KEY}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      body: JSON.stringify(db)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`Upstash SET failed (${res.status}): ${text}`);
+      throw new Error(`Upstash SET failed (${res.status})`);
     }
     return;
   }
@@ -147,37 +151,84 @@ app.post('/api/admin-auth', (req, res) => {
 });
 
 app.get('/api/kv/:key', async (req, res) => {
-  const db = await loadDb();
-  const key = req.params.key;
-  if (!(key in db)) return res.status(404).json({ error: 'not found' });
-  res.json({ key, value: db[key] });
+  try {
+    const db = await loadDb();
+    const key = req.params.key;
+    if (!(key in db)) return res.status(404).json({ error: 'not found' });
+    res.json({ key, value: db[key] });
+  } catch (e) {
+    res.status(503).json({ error: 'storage unavailable' });
+  }
 });
 
 app.put('/api/kv/:key', (req, res, next) => {
   if (isAdminProtectedKey(req.params.key)) return checkAdminAuth(req, res, next);
   next();
 }, async (req, res) => {
-  const db = await loadDb();
-  db[req.params.key] = req.body.value;
-  await saveDb(db);
-  res.json({ ok: true });
+  try {
+    await withWriteLock(async () => {
+      const db = await loadDb();
+      db[req.params.key] = req.body.value;
+      await saveDb(db);
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('PUT failed:', e.message);
+    res.status(503).json({ error: 'storage unavailable' });
+  }
+});
+
+// Atomic single-pick update. The browser sends only ONE change (who, which
+// game, which team or null to clear); the server merges it into the latest
+// stored picks. This means two people picking at the same time never erase
+// each other, which whole-object saves from stale browsers used to do.
+app.post('/api/picks/:year/:week', async (req, res) => {
+  const { name, gameId, teamId } = req.body || {};
+  if (!name || !gameId) return res.status(400).json({ error: 'name and gameId required' });
+  const key = `picks-${req.params.year}-${req.params.week}`;
+  try {
+    let picks;
+    await withWriteLock(async () => {
+      const db = await loadDb();
+      picks = db[key] || {};
+      const mine = { ...(picks[name] || {}) };
+      if (teamId) mine[gameId] = teamId; else delete mine[gameId];
+      picks = { ...picks, [name]: mine };
+      db[key] = picks;
+      await saveDb(db);
+    });
+    res.json({ ok: true, picks });
+  } catch (e) {
+    console.error('pick save failed:', e.message);
+    res.status(503).json({ error: 'storage unavailable' });
+  }
 });
 
 app.delete('/api/kv/:key', (req, res, next) => {
   if (isAdminProtectedKey(req.params.key)) return checkAdminAuth(req, res, next);
   next();
 }, async (req, res) => {
-  const db = await loadDb();
-  delete db[req.params.key];
-  await saveDb(db);
-  res.json({ ok: true });
+  try {
+    await withWriteLock(async () => {
+      const db = await loadDb();
+      delete db[req.params.key];
+      await saveDb(db);
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(503).json({ error: 'storage unavailable' });
+  }
 });
 
 app.get('/api/kv-list', async (req, res) => {
-  const db = await loadDb();
-  const prefix = req.query.prefix || '';
-  const keys = Object.keys(db).filter(k => k.startsWith(prefix));
-  res.json({ keys });
+  try {
+    const db = await loadDb();
+    const prefix = req.query.prefix || '';
+    const keys = Object.keys(db).filter(k => k.startsWith(prefix));
+    res.json({ keys });
+  } catch (e) {
+    res.status(503).json({ error: 'storage unavailable' });
+  }
 });
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
