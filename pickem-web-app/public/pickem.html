@@ -517,7 +517,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v45-winners-xlsx';
+  const BUILD_TAG = 'v46-xlsx-rollover-weeks';
 
   let state = {
     year: null,
@@ -1050,7 +1050,12 @@
     let skipped = 0;
     for(const { year, week } of weeks){
       const slate = await getShared(`slate-${year}-${week}`, { gameIds: [] });
-      if(!slate.gameIds || !slate.gameIds.length) continue;
+      const wkLabel = isBowlWeek(week) ? `Bowl ${toBowlWeekNumber(week)}` : `Week ${week}`;
+      if(!slate.gameIds || !slate.gameIds.length){
+        rows.push({ kind: 'skipped', year, weekLabel: wkLabel, name: 'No games', score: '', cards: 0,
+          rolledNote: 'No games were picked for this week.' });
+        continue;
+      }
       let rawGames;
       try{ rawGames = await getRawWeekGames(year, week, false); }
       catch(e){ skipped++; continue; }
@@ -1058,12 +1063,23 @@
       const picksForWeek = await getShared(`picks-${year}-${week}`, {});
       const result = evaluateWeekResult(games, picksForWeek);
       if(result.status === 'unresolved'){ skipped++; continue; }
+      if(result.status === 'bad_luck'){
+        const st = await computeGoldStreak(year, week);
+        const why = result.reason === 'no_picks' ? 'Nobody made any picks'
+          : result.reason === 'no_perfect' ? `Nobody went a perfect ${result.total} for ${result.total} (best was ${result.best} of ${result.total})`
+          : 'Nobody got a game right';
+        rows.push({ kind: 'rollover', year, weekLabel: wkLabel, name: 'No winner',
+          score: result.reason === 'no_perfect' ? `${result.best} of ${result.total}` : '', cards: 0,
+          rolledNote: `${why}. Rolled over: next week's pot is ${st.count + 1} gift cards.` });
+        continue;
+      }
       if(result.status !== 'win') continue;
       const streak = await computeGoldStreak(year, week);
       result.winners.forEach(name => {
         rows.push({
+          kind: 'win',
           year,
-          weekLabel: isBowlWeek(week) ? `Bowl ${toBowlWeekNumber(week)}` : `Week ${week}`,
+          weekLabel: wkLabel,
           name,
           score: `${result.maxCorrect} of ${games.length}`,
           cards: isEligibleForFullGiftCards(name, streak) ? streak.count : 1,
@@ -1082,7 +1098,8 @@
     try{
       await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js');
       const { rows, skipped } = await collectWinnerRows();
-      if(!rows.length){
+      const winRows = rows.filter(r => r.kind === 'win');
+      if(!winRows.length){
         state.exportStatus = 'No winners yet, so there is nothing to export.';
         render();
         return;
@@ -1106,6 +1123,17 @@
       ];
       rows.forEach((r, i) => {
         const n = i + 2;
+        if(r.kind !== 'win'){
+          // No-winner / skipped week: shown for context, owes nothing
+          ws.addRow({ year: r.year, week: r.weekLabel, name: r.name, score: r.score, cards: 0,
+            value: null, total: null, sent: '', date: null, notes: r.rolledNote });
+          const row = ws.getRow(n);
+          row.font = { italic: true, color: { argb: 'FF7A5C00' } };
+          row.eachCell({ includeEmpty: true }, c => {
+            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CC' } };
+          });
+          return;
+        }
         ws.addRow({
           year: r.year, week: r.weekLabel, name: r.name, score: r.score, cards: r.cards,
           value: value, total: value ? { formula: `E${n}*F${n}`, result: r.cards * value } : '',
@@ -1144,10 +1172,10 @@
         { header: 'Total owed', key: 'tot', width: 13 },
         { header: 'Still to send ($)', key: 'dleft', width: 17 }
       ];
-      const names = [...new Set(rows.map(r => r.name))].sort((a, b) => a.localeCompare(b));
+      const names = [...new Set(winRows.map(r => r.name))].sort((a, b) => a.localeCompare(b));
       names.forEach((name, i) => {
         const n = i + 2;
-        const owed = rows.filter(r => r.name === name).reduce((t, r) => t + r.cards, 0);
+        const owed = winRows.filter(r => r.name === name).reduce((t, r) => t + r.cards, 0);
         ws2.addRow({
           name,
           owed: { formula: `SUMIFS(Winners!$E:$E,Winners!$C:$C,A${n})`, result: owed },
@@ -1162,11 +1190,11 @@
       const tn = names.length + 2;
       ws2.addRow({
         name: 'TOTAL',
-        owed: { formula: `SUM(B2:B${tn - 1})`, result: rows.reduce((t, r) => t + r.cards, 0) },
+        owed: { formula: `SUM(B2:B${tn - 1})`, result: winRows.reduce((t, r) => t + r.cards, 0) },
         sent: { formula: `SUM(C2:C${tn - 1})`, result: 0 },
-        left: { formula: `SUM(D2:D${tn - 1})`, result: rows.reduce((t, r) => t + r.cards, 0) },
-        tot: { formula: `SUM(E2:E${tn - 1})`, result: value ? rows.reduce((t, r) => t + r.cards, 0) * value : 0 },
-        dleft: { formula: `SUM(F2:F${tn - 1})`, result: value ? rows.reduce((t, r) => t + r.cards, 0) * value : 0 }
+        left: { formula: `SUM(D2:D${tn - 1})`, result: winRows.reduce((t, r) => t + r.cards, 0) },
+        tot: { formula: `SUM(E2:E${tn - 1})`, result: value ? winRows.reduce((t, r) => t + r.cards, 0) * value : 0 },
+        dleft: { formula: `SUM(F2:F${tn - 1})`, result: value ? winRows.reduce((t, r) => t + r.cards, 0) * value : 0 }
       });
       ws2.getRow(tn).font = { bold: true };
       ws2.getCell(`E${tn}`).numFmt = '$#,##0';
@@ -1183,7 +1211,7 @@
       a.download = `pickem-gift-card-winners-${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      state.exportStatus = `Downloaded ${rows.length} winner row${rows.length > 1 ? 's' : ''}.` +
+      state.exportStatus = `Downloaded ${winRows.length} winner row${winRows.length > 1 ? 's' : ''} plus ${rows.length - winRows.length} no-winner week${rows.length - winRows.length === 1 ? '' : 's'}.` +
         (skipped ? ` ${skipped} week${skipped > 1 ? 's' : ''} not finished or not loadable, so left out.` : '') +
         (value ? '' : ' No gift card value is set, so dollar amounts are blank.');
     }catch(e){
@@ -1754,7 +1782,7 @@
           <button class="btn-ghost on" data-action="export-winners">Download winners spreadsheet</button>
           ${state.exportStatus ? `<span class="hint" style="margin:0;">${state.exportStatus}</span>` : ''}
         </div>
-        <div class="admin-prize-hint">One row per winner per finished week, with gift cards owed and a Sent? checkbox column.</div>
+        <div class="admin-prize-hint">One row per winner per finished week, plus a shaded row for each no-winner week, with gift cards owed and a Sent? checkbox column.</div>
       </div>
     `;
   }
