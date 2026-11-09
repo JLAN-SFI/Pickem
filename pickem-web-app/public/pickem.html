@@ -217,13 +217,58 @@
   .pot-hero.tier-2{border-color:rgba(255,182,39,0.4);}
   .pot-hero.tier-2 .hero-title{font-size:clamp(24px,6.5vw,32px);text-shadow:none;}
   .pot-hero.tier-3{border-color:#ff8a1f;}
-  .pot-hero.tier-3 .hero-title{font-size:clamp(34px,9.5vw,50px);color:#ff8a1f;text-shadow:0 0 22px rgba(255,138,31,0.6);}
-  .pot-hero.tier-4{border-color:#ff4d2e;background:rgba(80,20,10,0.5);}
-  .pot-hero.tier-4 .hero-title{font-size:clamp(40px,12.5vw,70px);color:#ff4d2e;text-shadow:0 0 26px rgba(255,77,46,0.7);animation:heroPulse 1.4s ease-in-out infinite;}
+  .pot-hero.tier-3 .hero-title{font-size:clamp(34px,9.5vw,50px);color:#ff8a1f;text-shadow:0 0 22px rgba(255,138,31,0.6);animation:fireFlicker 5s ease-in-out infinite, megaBreathe 4s ease-in-out infinite;}
+  .pot-hero.tier-3{animation:fireBorder 5s ease-in-out infinite;}
+  .pot-hero.tier-4{border-color:#ff2b2b;background:rgba(80,14,14,0.5);animation:sirenBorder 1.2s ease-in-out infinite;}
+  .pot-hero.tier-4 .hero-title{font-size:clamp(34px,10.5vw,62px);color:#ff2b2b;animation:sirenColor 1.2s ease-in-out infinite;}
+  .pot-hero.tier-4 .wave-letter{display:inline-block;animation:letterWave 1.4s ease-in-out infinite;}
+  .pot-hero.tier-4 .wave-space{display:inline-block;width:0.3em;}
+  @keyframes sirenColor{
+    0%,100%{color:#c81414;text-shadow:0 0 14px rgba(200,20,20,0.5);}
+    50%{color:#ff4040;text-shadow:0 0 30px rgba(255,64,64,0.85);}
+  }
+  @keyframes sirenBorder{
+    0%,100%{border-color:#9a1212;box-shadow:0 0 0 rgba(255,40,40,0);}
+    50%{border-color:#ff3b3b;box-shadow:0 0 22px rgba(255,40,40,0.45);}
+  }
+  @keyframes letterWave{
+    0%,100%{transform:translateY(0) scale(1);}
+    50%{transform:translateY(-0.12em) scale(1.18);}
+  }
   .pot-hero.tier-5{border-color:#ff2bd6;background:rgba(60,10,70,0.55);}
-  .pot-hero.tier-5 .hero-title{font-size:clamp(42px,13.5vw,78px);color:#ff2bd6;text-shadow:0 0 30px rgba(255,43,214,0.75),0 0 60px rgba(120,80,255,0.5);animation:heroPulse 0.9s ease-in-out infinite;}
+  .pot-hero.tier-5 .hero-title{font-size:clamp(42px,13.5vw,78px);color:#ff2bd6;text-shadow:0 0 30px rgba(255,43,214,0.75),0 0 60px rgba(120,80,255,0.5);animation:heroPulse 0.9s ease-in-out infinite, rainbowCycle 3s linear infinite;}
+  .pot-hero.tier-5{animation:rainbowBorder 3s linear infinite;}
+  @keyframes fireFlicker{
+    0%,100%{color:#ff7a00;text-shadow:0 0 22px rgba(255,122,0,0.6);}
+    20%{color:#ff9a1f;text-shadow:0 0 26px rgba(255,154,31,0.65);}
+    40%{color:#ffb627;text-shadow:0 0 30px rgba(255,182,39,0.7);}
+    60%{color:#ffa326;text-shadow:0 0 28px rgba(255,163,38,0.68);}
+    80%{color:#ff8a1f;text-shadow:0 0 24px rgba(255,138,31,0.62);}
+  }
+  @keyframes fireBorder{
+    0%,100%{border-color:#ff7a00;}
+    20%{border-color:#ff9a1f;}
+    40%{border-color:#ffb627;}
+    60%{border-color:#ffa326;}
+    80%{border-color:#ff8a1f;}
+  }
+  @keyframes megaBreathe{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+  @keyframes rainbowCycle{
+    0%,100%{color:#ff2bd6;text-shadow:0 0 30px rgba(255,43,214,0.75),0 0 60px rgba(120,80,255,0.5);}
+    20%{color:#a24bff;text-shadow:0 0 30px rgba(162,75,255,0.75),0 0 60px rgba(43,140,255,0.5);}
+    40%{color:#2b9cff;text-shadow:0 0 30px rgba(43,156,255,0.75),0 0 60px rgba(40,255,200,0.5);}
+    60%{color:#2bffb0;text-shadow:0 0 30px rgba(43,255,176,0.75),0 0 60px rgba(255,230,40,0.5);}
+    80%{color:#ffe62b;text-shadow:0 0 30px rgba(255,230,43,0.75),0 0 60px rgba(255,43,214,0.5);}
+  }
+  @keyframes rainbowBorder{
+    0%,100%{border-color:#ff2bd6;}
+    20%{border-color:#a24bff;}
+    40%{border-color:#2b9cff;}
+    60%{border-color:#2bffb0;}
+    80%{border-color:#ffe62b;}
+  }
   @keyframes heroPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.045);}}
-  @media (prefers-reduced-motion: reduce){ .pot-hero .hero-title{animation:none !important;} }
+  @media (prefers-reduced-motion: reduce){ .pot-hero, .pot-hero .hero-title, .pot-hero .wave-letter{animation:none !important;} }
 
   .booth{
     border:1px solid rgba(255,182,39,0.35);background:rgba(20,32,26,0.5);border-radius:10px;
@@ -456,7 +501,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v38-safe-saves';
+  const BUILD_TAG = 'v41-siren-monster';
 
   let state = {
     year: null,
@@ -870,13 +915,19 @@
     if(n === 4) return { n, tier: 4, title: 'M-M-M-MONSTER WEEK!' };
     return { n, tier: 5, title: 'LUDICROUS WEEK' };
   }
+  function waveText(text){
+    return Array.from(text).map((ch, i) => ch === ' '
+      ? '<span class="wave-space"></span>'
+      : `<span class="wave-letter" style="animation-delay:${(i * 0.09).toFixed(2)}s">${ch}</span>`
+    ).join('');
+  }
   function potHero(count, base, line){
     const t = potTier(count);
     const coins = '🪙'.repeat(Math.min(t.n, 8));
     const sub = line || `${t.n} gift card${t.n > 1 ? 's' : ''} ($${Math.round(base)} each) up for grabs this week`;
     return `<div class="pot-hero tier-${t.tier}">
       <div class="hero-coins">${coins}</div>
-      <div class="hero-title">${t.title}</div>
+      <div class="hero-title">${t.tier === 4 ? waveText(t.title) : t.title}</div>
       <div class="hero-sub">${sub}</div>
     </div>`;
   }
