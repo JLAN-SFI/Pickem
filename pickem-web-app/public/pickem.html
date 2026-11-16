@@ -283,8 +283,19 @@
   }
   @keyframes goldShimmer{0%{background-position:150% 0;}100%{background-position:-100% 0;}}
   @keyframes amtRainbow{0%{background-position:0% 0;}100%{background-position:-300% 0;}}
+  /* ---- Big winner celebration (rollover weeks) ---- */
+  .win-hero{position:relative;overflow:hidden;margin:18px 0 8px;padding:20px 12px 22px;}
+  .win-hero > *{position:relative;z-index:1;}
+  .win-hero .confetti-layer{position:absolute;inset:0;z-index:0;pointer-events:none;}
+  .win-hero .confetti-bit{position:absolute;top:-8%;font-size:20px;opacity:0.9;animation:confettiFall 3s linear infinite;}
+  @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:0;}10%{opacity:1;}100%{transform:translateY(520px) rotate(360deg);opacity:0;}}
+  .win-hero.tier-4 .hero-title,.win-hero.tier-5 .hero-title{font-size:clamp(30px,9vw,58px);overflow-wrap:anywhere;}
+  .win-hero.tier-3 .hero-title{font-size:clamp(30px,9vw,52px);}
+  .win-hero .win-names{font-family:'Anton',sans-serif;font-size:clamp(24px,7vw,40px);letter-spacing:0.02em;margin:10px 0 6px;color:var(--chalk);text-shadow:0 0 12px rgba(255,255,255,0.35);}
+  .win-hero .win-cheer{font-family:'Inter',sans-serif;font-weight:700;margin:6px auto 4px;max-width:520px;}
+  .win-hero .win-take{margin-top:8px;font-size:clamp(16px,4.6vw,22px);}
   @keyframes heroPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.045);}}
-  @media (prefers-reduced-motion: reduce){ .pot-hero, .pot-hero .hero-title, .pot-hero .wave-letter, .pot-hero .hero-amt{animation:none !important;} }
+  @media (prefers-reduced-motion: reduce){ .pot-hero, .pot-hero .hero-title, .pot-hero .wave-letter, .pot-hero .hero-amt, .win-hero .confetti-bit{animation:none !important;} .win-hero .confetti-layer{display:none;} }
 
   .booth{
     border:1px solid rgba(255,182,39,0.35);background:rgba(20,32,26,0.5);border-radius:10px;
@@ -517,7 +528,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v47-no-missed-week-rule';
+  const BUILD_TAG = 'v48-big-winner';
 
   let state = {
     year: null,
@@ -943,6 +954,46 @@
       : `<span class="wave-letter" style="animation-delay:${(i * 0.15).toFixed(2)}s">${ch}</span>`
     ).join('');
   }
+
+  // Big celebration for a week that finally ends a rollover streak.
+  function winnerHero(streak, winners, maxCorrect, totalGames){
+    const t = potTier(streak.count);
+    const plural = winners.length > 1;
+    const words = { 2: 'DOUBLE DOWN', 3: 'MEGA', 4: 'M-M-M-MONSTER', 5: 'LUDICROUS' }[t.tier];
+    const bangs = '!'.repeat(Math.min(t.tier, 4));
+    const titleText = `${words} WINNER${plural ? 'S' : ''}${bangs}`;
+    const cheers = {
+      2: 'Double the gift cards, double the bragging rights!',
+      3: 'The pile finally got cashed in, and WOW, what a pile!',
+      4: 'HOLY COW! The pile was HUGE and these legends took it ALL home!',
+      5: 'UNBELIEVABLE! Somebody stand up and applaud RIGHT NOW!'
+    }[t.tier];
+    const names = winners.map(n => escapeHtml(n)).join(' · ');
+    let confetti = '';
+    if(t.tier >= 3){
+      const bits = ['🎉','🎊','✨','🪙','🏆','⭐'];
+      const n = t.tier === 3 ? 14 : (t.tier === 4 ? 20 : 28);
+      for(let i = 0; i < n; i++){
+        const left = (i * 37 + 11) % 100;
+        const delay = ((i * 0.37) % 3).toFixed(2);
+        const dur = (2.6 + ((i * 7) % 5) * 0.4).toFixed(1);
+        confetti += `<span class="confetti-bit" style="left:${left}%;animation-delay:${delay}s;animation-duration:${dur}s">${bits[i % bits.length]}</span>`;
+      }
+    }
+    const amount = state.prizeBase
+      ? `<div class="hero-sub win-take">${streak.count} gift cards, each winner takes home <span class="hero-amt">$${Math.round(streak.count * state.prizeBase)}</span>!</div>`
+      : '';
+    return `<div class="pot-hero win-hero tier-${t.tier}">
+      ${confetti ? `<div class="confetti-layer" aria-hidden="true">${confetti}</div>` : ''}
+      <div class="hero-coins">${'🏆'.repeat(Math.min(t.tier, 5))}</div>
+      <div class="hero-title">${t.tier === 3 ? waveText(titleText) : titleText}</div>
+      <div class="win-names">${names}</div>
+      <div class="hero-sub win-cheer">${cheers}</div>
+      ${amount}
+      <div class="winner-sub">${maxCorrect} of ${totalGames} correct</div>
+    </div>`;
+  }
+
   function potHero(count, base, line){
     const t = potTier(count);
     const coins = '🪙'.repeat(Math.min(t.n, 8));
@@ -2040,14 +2091,16 @@
     }));
     const showBreakdown = state.prizeBase && (streak.count > 1);
 
+    const bigWin = streak.count >= 2;
     return `<div class="winners-wrap">
+      ${bigWin ? winnerHero(streak, result.winners, result.maxCorrect, state.games.length) : `
       <div class="trophy">🏆</div>
       <div class="winner-heading">Week ${state.week} Champion${result.winners.length > 1 ? 's' : ''}</div>
-      <div class="winner-names">${result.winners.join(' · ')}</div>
-      <div class="winner-sub">${result.maxCorrect} of ${state.games.length} correct</div>
+      <div class="winner-names">${result.winners.map(n => escapeHtml(n)).join(' · ')}</div>
+      <div class="winner-sub">${result.maxCorrect} of ${state.games.length} correct</div>`}
       ${state.prizeBase ? `
-        ${renderGoldPile(streak.count)}
-        <div class="pot-callout">Each eligible winner gets ${giftCardLabel(streak.count, state.prizeBase)}!</div>
+        ${bigWin ? '' : renderGoldPile(streak.count)}
+        ${bigWin ? '' : `<div class="pot-callout">Each winner gets ${giftCardLabel(streak.count, state.prizeBase)}!</div>`}
         ${showBreakdown ? `
           <ul class="award-breakdown">
             ${awards.map(a => `<li>${a.name} — ${a.count} gift card${a.count > 1 ? 's' : ''}</li>`).join('')}
