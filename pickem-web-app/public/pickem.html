@@ -517,7 +517,7 @@
     return `${INJURY_TYPES[typeIdx]} ${BODY_PARTS[partIdx]}`;
   }
 
-  const BUILD_TAG = 'v46-xlsx-rollover-weeks';
+  const BUILD_TAG = 'v47-no-missed-week-rule';
 
   let state = {
     year: null,
@@ -983,10 +983,8 @@
   // ---------- gift card rollover ----------
   // Gift cards roll over (not a dollar pot that splits): each unclaimed week
   // adds one more gift card to what's up for grabs. When someone finally
-  // wins, EVERY tied winner gets the full count of gift cards each — but
-  // only if they fully participated (picked all 3 games) in every week of
-  // the rollover streak, not just the week they won. Someone who jumped in
-  // partway through a rollover only gets 1 gift card, for the week they won.
+  // wins, EVERY tied winner gets the full count of gift cards each, whether
+  // or not they picked in the earlier rollover weeks.
   async function computeGoldStreak(year, week){
     const keys = await listSharedKeys(`slate-${year}-`);
     const weekNums = keys.map(k => {
@@ -1083,9 +1081,7 @@
           name,
           score: `${result.maxCorrect} of ${games.length}`,
           cards: isEligibleForFullGiftCards(name, streak) ? streak.count : 1,
-          rolledNote: (streak.count > 1 && !isEligibleForFullGiftCards(name, streak))
-            ? `Missed a rollover week, only this week's card (pot was ${streak.count})`
-            : (streak.count > 1 ? `Rollover pot of ${streak.count}` : '')
+          rolledNote: streak.count > 1 ? `Rollover pot of ${streak.count}` : ''
         });
       });
     }
@@ -1221,9 +1217,11 @@
     render();
   }
 
+  // Every winner gets the full rollover count. (The old "you must have played every
+  // rollover week" rule was removed: picks lost to a save glitch made people look like
+  // they had skipped weeks.)
   function isEligibleForFullGiftCards(name, streak){
-    if(!streak || !streak.priorWeeks.length) return true;
-    return streak.priorWeeks.every(w => streak.participantsByWeek[w] && streak.participantsByWeek[w].has(name));
+    return true;
   }
 
   function escapeHtml(s){
@@ -1767,7 +1765,7 @@
         <button class="btn-ghost on" data-action="save-admin">${count === 0 ? 'Save (no games this week)' : "Save this week's games"}</button>
       </div>
       <div class="admin-prize-block">
-        <label>Gift card value (each unclaimed gift card rolls to next week — every tied winner gets a full set, if they played all the rollover weeks)</label>
+        <label>Gift card value (each unclaimed week adds one more gift card, and every winner gets the full set)</label>
         <div class="admin-prize-row">
           <span>$</span>
           <input type="number" id="admin-prize-input" min="1" step="1" value="${state.adminPrizeDraft}">
@@ -2052,7 +2050,7 @@
         <div class="pot-callout">Each eligible winner gets ${giftCardLabel(streak.count, state.prizeBase)}!</div>
         ${showBreakdown ? `
           <ul class="award-breakdown">
-            ${awards.map(a => `<li>${a.name} — ${a.count} gift card${a.count > 1 ? 's' : ''}${a.count < streak.count ? ' <span class="award-note">(missed a rollover week — only this week\'s card)</span>' : ''}</li>`).join('')}
+            ${awards.map(a => `<li>${a.name} — ${a.count} gift card${a.count > 1 ? 's' : ''}</li>`).join('')}
           </ul>
         ` : ''}
         <div class="pot-callout small">Gift cards reset to 1 next week.</div>
